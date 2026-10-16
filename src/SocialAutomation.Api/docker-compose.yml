@@ -1,0 +1,18 @@
+
+  api:
+    # ... outras configurações ...
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__PostgreSQL: "Host=postgres;Port=5432;Database=socialautomation;Username=postgres;Password=postgres"
+      Redis__ConnectionString: "redis:6379"
+      Jwt__Secret: "super-secret-key-for-development-minimum-32-chars!"
+      Jwt__Issuer: "SocialAutomation"
+      Jwt__Audience: "SocialAutomation"
+      Jwt__ExpirationMinutes: "60"
+      Jwt__RefreshExpirationDays: "30"
+      App__FrontendUrl: "http://localhost:3100" # <-- Atualizado aqui para o CORS da API rodando em Docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy

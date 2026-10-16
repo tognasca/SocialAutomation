@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="src/SocialAutomation.Api/SocialAutomation.Api.csproj" />
+  <Project Path="src/SocialAutomation.Application/SocialAutomation.Application.csproj" />
+  <Project Path="src/SocialAutomation.Domain/SocialAutomation.Domain.csproj" />
+  <Project Path="src/SocialAutomation.Infrastructure/SocialAutomation.Infrastructure.csproj" />
+  <Project Path="src/SocialAutomation.Worker/SocialAutomation.Worker.csproj" />
+</Solution>
