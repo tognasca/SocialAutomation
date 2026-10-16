@@ -47,6 +47,34 @@ public class RoleRepository : IRoleRepository
             new { Name = name });
     }
 
+    public async Task<Role?> GetAssignableByNameAsync(string name, Guid tenantId, CancellationToken ct = default)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        return await connection.QueryFirstOrDefaultAsync<Role>(
+            @"SELECT id, tenant_id AS TenantId, name, description, is_system AS IsSystem,
+                     created_at AS CreatedAt
+              FROM roles
+              WHERE lower(name) = lower(@Name)
+                AND (tenant_id IS NULL OR tenant_id = @TenantId)
+                AND lower(name) <> 'superadmin'
+              ORDER BY (tenant_id IS NULL) DESC
+              LIMIT 1",
+            new { Name = name, TenantId = tenantId });
+    }
+
+    public async Task<Role?> GetAssignableByIdAsync(Guid id, Guid tenantId, CancellationToken ct = default)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        return await connection.QueryFirstOrDefaultAsync<Role>(
+            @"SELECT id, tenant_id AS TenantId, name, description, is_system AS IsSystem,
+                     created_at AS CreatedAt
+              FROM roles
+              WHERE id = @Id
+                AND (tenant_id IS NULL OR tenant_id = @TenantId)
+                AND lower(name) <> 'superadmin'",
+            new { Id = id, TenantId = tenantId });
+    }
+
     public async Task<IEnumerable<string>> GetUserRoleNamesAsync(Guid userId, CancellationToken ct = default)
     {
         using var connection = _connectionFactory.CreateConnection();
