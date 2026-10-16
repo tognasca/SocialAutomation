@@ -68,6 +68,8 @@ services:
     build:
       context: ./frontend/socialautomation-web
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: "https://api.seudominio.com"
     container_name: sa-frontend-prod
     restart: always
     environment:
