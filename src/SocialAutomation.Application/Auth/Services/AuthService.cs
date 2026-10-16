@@ -225,19 +225,12 @@ public class AuthService
             return Result.Fail<LoginResponse>("Token inválido ou expirado.");
 
         var user = await _userRepository.GetByIdAsync(existingToken.UserId, Guid.Empty, ct);
-        if (user == null)
-        {
-            // Try global lookup for refresh
-            user = await _userRepository.GetByEmailGlobalAsync(string.Empty, ct);
-            if (user == null)
-                return Result.Fail<LoginResponse>("Usuário não encontrado.");
-        }
+        if (user == null || user.Status != UserStatus.Active)
+            return Result.Fail<LoginResponse>("Usuário não encontrado, inativo ou bloqueado.");
 
-        // Workaround: get user by refresh token's userId without tenantId check
-        // We need a method that gets user by ID without tenant filter for token refresh
         var tenant = await _tenantRepository.GetByIdAsync(user.TenantId, ct);
-        if (tenant == null)
-            return Result.Fail<LoginResponse>("Empresa não encontrada.");
+        if (tenant == null || tenant.Status != TenantStatus.Active)
+            return Result.Fail<LoginResponse>("Empresa inativa ou suspensa.");
 
         var roles = (await _roleRepository.GetUserRoleNamesAsync(user.Id, ct)).ToList();
         var permissions = (await _permissionRepository.GetUserPermissionCodesAsync(user.Id, ct)).ToList();
