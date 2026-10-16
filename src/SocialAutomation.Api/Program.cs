@@ -76,8 +76,9 @@ builder.Services.AddScoped<SocialAutomation.Application.Analytics.Services.Analy
 builder.Services.AddValidatorsFromAssemblyContaining<LoginRequestValidator>();
 
 // 5. JWT
-var jwtSecret = builder.Configuration["Jwt:Secret"]
-    ?? throw new InvalidOperationException("Jwt:Secret não foi configurado no appsettings.");
+var jwtSecret = builder.Configuration["Jwt:Secret"];
+if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret.Length < 32)
+    throw new InvalidOperationException("Configure Jwt:Secret por User Secrets ou variável de ambiente (mínimo de 32 caracteres).");
 
 builder.Services.AddAuthentication(options =>
 {
