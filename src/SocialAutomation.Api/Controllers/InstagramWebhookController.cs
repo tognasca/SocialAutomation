@@ -8,6 +8,8 @@ using SocialAutomation.Domain.Interfaces.Repositories;
 using SocialAutomation.Infrastructure.Instagram;
 using StackExchange.Redis;
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace SocialAutomation.Api.Controllers;
 
@@ -20,19 +22,22 @@ public class InstagramWebhookController : ControllerBase
     private readonly IInstagramWebhookEventRepository _webhookEventRepository;
     private readonly IInstagramAccountRepository _instagramAccountRepository;
     private readonly IConnectionMultiplexer _redis;
+    private readonly IWebHostEnvironment _environment;
 
     public InstagramWebhookController(
         IConfiguration configuration,
         ILogger<InstagramWebhookController> logger,
         IInstagramWebhookEventRepository webhookEventRepository,
         IInstagramAccountRepository instagramAccountRepository,
-        IConnectionMultiplexer redis)
+        IConnectionMultiplexer redis,
+        IWebHostEnvironment environment)
     {
         _configuration = configuration;
         _logger = logger;
         _webhookEventRepository = webhookEventRepository;
         _instagramAccountRepository = instagramAccountRepository;
         _redis = redis;
+        _environment = environment;
     }
 
     /// <summary>
@@ -95,7 +100,9 @@ public class InstagramWebhookController : ControllerBase
                                   ?? await _instagramAccountRepository.GetByPageIdAsync(entryId, ct);
 
                     // Generate Unique Event Id for Idempotency
-                    var eventId = $"{entryId}:{entry.GetProperty("time").GetInt64()}:{Guid.NewGuid():N}";
+                    var entryPayload = entry.GetRawText();
+                    var payloadHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(entryPayload))).ToLowerInvariant();
+                    var eventId = $"{entryId}:{payloadHash}";
 
                     if (await _webhookEventRepository.ExistsAsync(eventId, ct))
                     {
@@ -148,7 +155,10 @@ public class InstagramWebhookController : ControllerBase
     [HttpPost("simulate-dm")]
     public async Task<IActionResult> SimulateIncomingDm([FromBody] SimulateDmRequest request, [FromServices] InstagramWebhookProcessor processor, CancellationToken ct)
     {
-        var fakePayload = $$"""
+        if (!_environment.IsDevelopment())
+            return NotFound();
+
+        var fakePayload = $"""
         {
           "id": "{{request.InstagramBusinessId}}",
           "time": {{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}},
