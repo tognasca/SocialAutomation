@@ -67,12 +67,18 @@ public class MigrationRunner
 
             var checksum = ComputeChecksum(content);
 
-            var alreadyRan = await connection.QueryFirstOrDefaultAsync<string>(
-                "SELECT version FROM schema_migrations WHERE version = @Version",
+            var alreadyRan = await connection.QueryFirstOrDefaultAsync<int?>(
+                "SELECT 1 FROM schema_migrations WHERE version = @Version",
                 new { Version = version });
 
-            if (alreadyRan != null)
+            if (alreadyRan.HasValue)
             {
+                var storedChecksum = await connection.QueryFirstOrDefaultAsync<string>(
+                    "SELECT checksum FROM schema_migrations WHERE version = @Version",
+                    new { Version = version });
+                if (!string.IsNullOrWhiteSpace(storedChecksum) && !string.Equals(storedChecksum, checksum, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException($"Checksum da migration {fileName} diverge do arquivo já aplicado. Não altere migrations aplicadas; crie uma nova migration.");
+
                 _logger.LogDebug("Migration {FileName} já executada, ignorando.", fileName);
                 continue;
             }
@@ -81,17 +87,18 @@ public class MigrationRunner
 
             try
             {
-                // Executa o script SQL diretamente via NpgsqlCommand
-                using (var cmd = connection.CreateCommand())
+                await using var transaction = await connection.BeginTransactionAsync();
+                await using (var cmd = await connection.CreateCommandAsync())
                 {
+                    cmd.Transaction = transaction;
                     cmd.CommandText = content;
                     await cmd.ExecuteNonQueryAsync();
                 }
 
-                // Registra que a migration foi aplicada
                 await connection.ExecuteAsync(
                     "INSERT INTO schema_migrations (version, name, checksum) VALUES (@Version, @Name, @Checksum)",
-                    new { Version = version, Name = fileName, Checksum = checksum });
+                    new { Version = version, Name = fileName, Checksum = checksum }, transaction);
+                await transaction.CommitAsync();
 
                 _logger.LogInformation("Migration {FileName} aplicada com sucesso.", fileName);
             }
