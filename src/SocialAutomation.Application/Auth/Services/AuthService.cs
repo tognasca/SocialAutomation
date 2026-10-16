@@ -50,6 +50,10 @@ public class AuthService
 
     public async Task<Result<LoginResponse>> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
     {
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+        if (await _userRepository.GetByEmailGlobalAsync(normalizedEmail, ct) != null)
+            return Result.Fail<LoginResponse>("Este email já está cadastrado. Faça login com sua conta existente.");
+
         var slug = GenerateSlug(request.TenantName);
 
         if (await _tenantRepository.SlugExistsAsync(slug, ct))
