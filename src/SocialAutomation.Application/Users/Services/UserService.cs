@@ -104,8 +104,17 @@ public class UserService
         if (currentCount >= tenant.MaxUsers)
             return Result.Fail<Guid>($"Limite de {tenant.MaxUsers} usuários atingido.");
 
-        if (await _userRepository.EmailExistsAsync(request.Email, _tenantContext.TenantId, ct))
+        if (await _userRepository.EmailExistsAsync(request.Email.Trim().ToLowerInvariant(), _tenantContext.TenantId, ct))
             return Result.Fail<Guid>("Email já está em uso.");
+
+        var rolesToAssign = new List<Role>();
+        foreach (var roleName in request.Roles.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var role = await _roleRepository.GetAssignableByNameAsync(roleName, _tenantContext.TenantId, ct);
+            if (role == null)
+                return Result.Fail<Guid>($"Perfil inválido ou não permitido: {roleName}.");
+            rolesToAssign.Add(role);
+        }
 
         var user = new User
         {
@@ -123,15 +132,8 @@ public class UserService
 
         await _userRepository.CreateAsync(user, ct);
 
-        // Assign roles
-        foreach (var roleName in request.Roles)
-        {
-            var role = await _roleRepository.GetByNameAsync(roleName, ct);
-            if (role != null)
-            {
-                await _roleRepository.AssignRoleToUserAsync(user.Id, role.Id, ct);
-            }
-        }
+        foreach (var role in rolesToAssign)
+            await _roleRepository.AssignRoleToUserAsync(user.Id, role.Id, ct);
 
         await _auditLogRepository.CreateAsync(new AuditLog
         {
@@ -153,23 +155,25 @@ public class UserService
         if (user == null)
             return Result.Fail("Usuário não encontrado.");
 
+        var rolesToAssign = new List<Role>();
+        foreach (var roleName in request.Roles.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var role = await _roleRepository.GetAssignableByNameAsync(roleName, _tenantContext.TenantId, ct);
+            if (role == null)
+                return Result.Fail($"Perfil inválido ou não permitido: {roleName}.");
+            rolesToAssign.Add(role);
+        }
+
         user.Name = request.Name.Trim();
         user.Phone = request.Phone;
         user.AvatarUrl = request.AvatarUrl;
         user.UpdatedAt = _dateTimeProvider.UtcNow;
 
         await _userRepository.UpdateAsync(user, ct);
-
-        // Update roles
         await _roleRepository.RemoveAllUserRolesAsync(user.Id, ct);
-        foreach (var roleName in request.Roles)
-        {
-            var role = await _roleRepository.GetByNameAsync(roleName, ct);
-            if (role != null)
-            {
-                await _roleRepository.AssignRoleToUserAsync(user.Id, role.Id, ct);
-            }
-        }
+
+        foreach (var role in rolesToAssign)
+            await _roleRepository.AssignRoleToUserAsync(user.Id, role.Id, ct);
 
         return Result.Ok();
     }
@@ -196,12 +200,18 @@ public class UserService
         if (user == null)
             return Result.Fail("Usuário não encontrado.");
 
-        await _roleRepository.RemoveAllUserRolesAsync(userId, ct);
-
-        foreach (var roleId in request.RoleIds)
+        var rolesToAssign = new List<Role>();
+        foreach (var roleId in request.RoleIds.Distinct())
         {
-            await _roleRepository.AssignRoleToUserAsync(userId, roleId, ct);
+            var role = await _roleRepository.GetAssignableByIdAsync(roleId, _tenantContext.TenantId, ct);
+            if (role == null)
+                return Result.Fail("Um ou mais perfis são inválidos ou não permitidos.");
+            rolesToAssign.Add(role);
         }
+
+        await _roleRepository.RemoveAllUserRolesAsync(userId, ct);
+        foreach (var role in rolesToAssign)
+            await _roleRepository.AssignRoleToUserAsync(userId, role.Id, ct);
 
         return Result.Ok();
     }
