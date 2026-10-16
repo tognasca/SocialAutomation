@@ -88,7 +88,7 @@ public class MigrationRunner
             try
             {
                 await using var transaction = await connection.BeginTransactionAsync();
-                await using (var cmd = await connection.CreateCommandAsync())
+                await using (var cmd = connection.CreateCommand())
                 {
                     cmd.Transaction = transaction;
                     cmd.CommandText = content;
