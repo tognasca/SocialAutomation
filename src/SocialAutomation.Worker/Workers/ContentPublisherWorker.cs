@@ -33,11 +33,11 @@ public class ContentPublisherWorker : BackgroundService
 
                     await contentRepo.UpdateStatusAsync(item.Id, item.TenantId, "Processando", null, null, stoppingToken);
 
-                    // Publicação via Meta Graph API (Modo Simulação / Produção)
-                    var fakePubId = $"ig_pub_{Guid.NewGuid():N}";
-                    await contentRepo.UpdateStatusAsync(item.Id, item.TenantId, "Publicado", fakePubId, null, stoppingToken);
+                    // Do not report success until a real Meta Graph API publish flow exists.
+                    const string publishError = "Publicação automática indisponível: integração com a Meta Graph API ainda não implementada.";
+                    await contentRepo.UpdateStatusAsync(item.Id, item.TenantId, "Falha", null, publishError, stoppingToken);
 
-                    _logger.LogInformation("Conteúdo {Title} publicado no Instagram com sucesso!", item.Title);
+                    _logger.LogWarning("Conteúdo {Title} não foi publicado: integração com a Meta Graph API pendente.", item.Title);
                 }
             }
             catch (Exception ex)
