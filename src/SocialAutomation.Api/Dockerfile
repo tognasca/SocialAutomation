@@ -4,7 +4,7 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 WORKDIR /app
 EXPOSE 8080
 
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY ["src/SocialAutomation.Api/SocialAutomation.Api.csproj", "src/SocialAutomation.Api/"]
 COPY ["src/SocialAutomation.Application/SocialAutomation.Application.csproj", "src/SocialAutomation.Application/"]
