@@ -183,12 +183,13 @@ using (var scope = app.Services.CreateScope())
         }
         else
         {
-            Log.Error("Nenhuma pasta de migrations com arquivos SQL válidos foi localizada.");
+            throw new DirectoryNotFoundException("Nenhuma pasta de migrations com arquivos SQL válidos foi localizada. Configure MIGRATIONS_PATH.");
         }
     }
     catch (Exception ex)
     {
-        Log.Error(ex, "Erro fatal ao aplicar migrations no banco.");
+        Log.Fatal(ex, "Falha ao aplicar migrations. A API não será iniciada para evitar operar com schema incompleto.");
+        throw;
     }
 }
 
