@@ -21,6 +21,6 @@ RUN dotnet publish -c Release -o /app/publish /p:UseAppHost=false
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
-COPY database/migrations /app/migrations
+COPY src/SocialAutomation.Infrastructure/Database/migrations /app/migrations
 ENV MIGRATIONS_PATH=/app/migrations
 ENTRYPOINT ["dotnet", "SocialAutomation.Api.dll"]
