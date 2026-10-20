@@ -29,7 +29,7 @@ export default function InstagramCallbackPage() {
       setErrorMessage('Parâmetros de autorização ausentes.')
       return
     }
-
+debugger;
     const exchangeCode = async () => {
       try {
         const redirectUri = `${window.location.origin}/instagram/callback`
