@@ -102,17 +102,20 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization();
 builder.Services.AddControllers();
 
-// 6. CORS
+// 6. CORS - origins explicitamente autorizadas, sem wildcard
+var frontendOrigins = (builder.Configuration["App:AllowedOrigins"] ??
+    "http://localhost:3100;http://localhost:3101;https://socialautomation.ademartognasca.com.br")
+    .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    .Select(origin => origin.TrimEnd('/'))
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
-    {
-        policy.WithOrigins(
-                builder.Configuration["App:FrontendUrl"] ?? "http://localhost:3100")
+        policy.WithOrigins(frontendOrigins)
             .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials();
-    });
+            .AllowAnyMethod());
 });
 
 // 7. Swagger
@@ -202,6 +205,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseRouting();
 app.UseCors("AllowFrontend");
 app.UseAuthentication();
 app.UseAuthorization();
