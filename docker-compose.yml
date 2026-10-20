@@ -44,6 +44,7 @@ services:
       - "5010:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      App__AllowedOrigins: "http://localhost:3100;http://localhost:3101;https://socialautomation.ademartognasca.com.br"
       ConnectionStrings__PostgreSQL: "Host=postgres;Port=5432;Database=socialautomation;Username=postgres;Password=postgres"
       Redis__ConnectionString: "redis:6379"
       Jwt__Secret: "super-secret-key-for-development-minimum-32-chars!"
@@ -77,12 +78,14 @@ services:
     build:
       context: ./frontend/socialautomation-web
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: "https://api-socialautomation.ademartognasca.com.br"
     container_name: sa-frontend
     restart: unless-stopped
     ports:
       - "3100:3100"
     environment:
-      NEXT_PUBLIC_API_URL: "http://localhost:5010"
+      NEXT_PUBLIC_API_URL: "https://api-socialautomation.ademartognasca.com.br"
     depends_on:
       - api
 
