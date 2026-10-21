@@ -1,0 +1,95 @@
+ Image socialautomation-worker Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 551B 0.0s done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.05kB 0.0s done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for mcr.microsoft.com/dotnet/aspnet:9.0
+#3 ...
+
+#4 [internal] load metadata for mcr.microsoft.com/dotnet/sdk:9.0
+#4 DONE 0.3s
+
+#3 [internal] load metadata for mcr.microsoft.com/dotnet/aspnet:9.0
+#3 DONE 0.3s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.0s
+
+#6 [build  1/10] FROM mcr.microsoft.com/dotnet/sdk:9.0@sha256:d9ad72f6b3eb5d61adb158db510ae1c3098c12c92d23ab8da833418275f1c652
+#6 resolve mcr.microsoft.com/dotnet/sdk:9.0@sha256:d9ad72f6b3eb5d61adb158db510ae1c3098c12c92d23ab8da833418275f1c652 0.0s done
+#6 DONE 0.1s
+
+#7 [internal] load build context
+#7 ...
+
+#8 [base 1/2] FROM mcr.microsoft.com/dotnet/aspnet:9.0@sha256:88fcfc1b81c43afa15ba3c138c57d77f77c1cb5118ae9d7024c94e82e2895aa5
+#8 resolve mcr.microsoft.com/dotnet/aspnet:9.0@sha256:88fcfc1b81c43afa15ba3c138c57d77f77c1cb5118ae9d7024c94e82e2895aa5 0.0s done
+#8 DONE 0.1s
+
+#9 [base 2/2] WORKDIR /app
+#9 CACHED
+
+#10 [final 1/2] WORKDIR /app
+#10 CACHED
+
+#7 [internal] load build context
+#7 transferring context: 3.28MB 1.5s done
+#7 DONE 1.6s
+
+#11 [build  4/10] COPY [src/SocialAutomation.Application/SocialAutomation.Application.csproj, src/SocialAutomation.Application/]
+#11 CACHED
+
+#12 [build  5/10] COPY [src/SocialAutomation.Domain/SocialAutomation.Domain.csproj, src/SocialAutomation.Domain/]
+#12 CACHED
+
+#13 [build  2/10] WORKDIR /src
+#13 CACHED
+
+#14 [build  3/10] COPY [src/SocialAutomation.Worker/SocialAutomation.Worker.csproj, src/SocialAutomation.Worker/]
+#14 CACHED
+
+#15 [build  6/10] COPY [src/SocialAutomation.Infrastructure/SocialAutomation.Infrastructure.csproj, src/SocialAutomation.Infrastructure/]
+#15 CACHED
+
+#16 [build  7/10] RUN dotnet restore "src/SocialAutomation.Worker/SocialAutomation.Worker.csproj"
+#16 0.936   Determining projects to restore...
+#16 1.368 /usr/share/dotnet/sdk/9.0.319/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.TargetFrameworkInference.targets(166,5): error NETSDK1045: The current .NET SDK does not support targeting .NET 10.0.  Either target .NET 9.0 or lower, or use a version of the .NET SDK that supports .NET 10.0. Download the .NET SDK from https://aka.ms/dotnet/download [/src/src/SocialAutomation.Application/SocialAutomation.Application.csproj]
+#16 1.368 /usr/share/dotnet/sdk/9.0.319/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.TargetFrameworkInference.targets(166,5): error NETSDK1045: The current .NET SDK does not support targeting .NET 10.0.  Either target .NET 9.0 or lower, or use a version of the .NET SDK that supports .NET 10.0. Download the .NET SDK from https://aka.ms/dotnet/download [/src/src/SocialAutomation.Infrastructure/SocialAutomation.Infrastructure.csproj]
+#16 1.370 /usr/share/dotnet/sdk/9.0.319/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.TargetFrameworkInference.targets(166,5): error NETSDK1045: The current .NET SDK does not support targeting .NET 10.0.  Either target .NET 9.0 or lower, or use a version of the .NET SDK that supports .NET 10.0. Download the .NET SDK from https://aka.ms/dotnet/download [/src/src/SocialAutomation.Domain/SocialAutomation.Domain.csproj]
+#16 1.373 /usr/share/dotnet/sdk/9.0.319/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.TargetFrameworkInference.targets(166,5): error NETSDK1045: The current .NET SDK does not support targeting .NET 10.0.  Either target .NET 9.0 or lower, or use a version of the .NET SDK that supports .NET 10.0. Download the .NET SDK from https://aka.ms/dotnet/download [/src/src/SocialAutomation.Worker/SocialAutomation.Worker.csproj]
+#16 ERROR: process "/bin/sh -c dotnet restore \"src/SocialAutomation.Worker/SocialAutomation.Worker.csproj\"" did not complete successfully: exit code: 1
+------
+ > [build  7/10] RUN dotnet restore "src/SocialAutomation.Worker/SocialAutomation.Worker.csproj":
+0.936   Determining projects to restore...
+1.368 /usr/share/dotnet/sdk/9.0.319/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.TargetFrameworkInference.targets(166,5): error NETSDK1045: The current .NET SDK does not support targeting .NET 10.0.  Either target .NET 9.0 or lower, or use a version of the .NET SDK that supports .NET 10.0. Download the .NET SDK from https://aka.ms/dotnet/download [/src/src/SocialAutomation.Application/SocialAutomation.Application.csproj]
+1.368 /usr/share/dotnet/sdk/9.0.319/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.TargetFrameworkInference.targets(166,5): error NETSDK1045: The current .NET SDK does not support targeting .NET 10.0.  Either target .NET 9.0 or lower, or use a version of the .NET SDK that supports .NET 10.0. Download the .NET SDK from https://aka.ms/dotnet/download [/src/src/SocialAutomation.Infrastructure/SocialAutomation.Infrastructure.csproj]
+1.370 /usr/share/dotnet/sdk/9.0.319/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.TargetFrameworkInference.targets(166,5): error NETSDK1045: The current .NET SDK does not support targeting .NET 10.0.  Either target .NET 9.0 or lower, or use a version of the .NET SDK that supports .NET 10.0. Download the .NET SDK from https://aka.ms/dotnet/download [/src/src/SocialAutomation.Domain/SocialAutomation.Domain.csproj]
+1.373 /usr/share/dotnet/sdk/9.0.319/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.TargetFrameworkInference.targets(166,5): error NETSDK1045: The current .NET SDK does not support targeting .NET 10.0.  Either target .NET 9.0 or lower, or use a version of the .NET SDK that supports .NET 10.0. Download the .NET SDK from https://aka.ms/dotnet/download [/src/src/SocialAutomation.Worker/SocialAutomation.Worker.csproj]
+------
+Dockerfile:12
+
+--------------------
+
+  10 |     COPY ["src/SocialAutomation.Domain/SocialAutomation.Domain.csproj", "src/SocialAutomation.Domain/"]
+
+  11 |     COPY ["src/SocialAutomation.Infrastructure/SocialAutomation.Infrastructure.csproj", "src/SocialAutomation.Infrastructure/"]
+
+  12 | >>> RUN dotnet restore "src/SocialAutomation.Worker/SocialAutomation.Worker.csproj"
+
+  13 |     COPY . .
+
+  14 |     WORKDIR "/src/src/SocialAutomation.Worker"
+
+--------------------
+
+failed to solve: process "/bin/sh -c dotnet restore \"src/SocialAutomation.Worker/SocialAutomation.Worker.csproj\"" did not complete successfully: exit code: 1
+
+
+
+View build details: docker-desktop://dashboard/build/default/default/xqf7otrgbytvi3o7wj5a8itza
+

@@ -1,0 +1,4 @@
+﻿services:
+  api:
+    environment:
+      Instagram__WebhookVerifyToken: "${INSTAGRAM_WEBHOOK_VERIFY_TOKEN}"

@@ -1,0 +1,11 @@
+﻿services:
+  api:
+    environment:
+      Instagram__AppId: "${INSTAGRAM_APP_ID:?AppId ausente}"
+      Instagram__AppSecret: "${INSTAGRAM_APP_SECRET:?AppSecret ausente}"
+      Instagram__WebhookVerifyToken: "${INSTAGRAM_WEBHOOK_VERIFY_TOKEN:?VerifyToken ausente}"
+
+  worker:
+    environment:
+      Instagram__AppId: "${INSTAGRAM_APP_ID:?AppId ausente}"
+      Instagram__AppSecret: "${INSTAGRAM_APP_SECRET:?AppSecret ausente}"

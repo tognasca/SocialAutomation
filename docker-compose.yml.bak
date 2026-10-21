@@ -1,0 +1,94 @@
+# docker-compose.yml
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: socialautomation
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d socialautomation"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: sa-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: src/SocialAutomation.Api/Dockerfile
+    container_name: sa-api
+    restart: unless-stopped
+    ports:
+      - "5010:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      App__AllowedOrigins: "http://localhost:3100;http://localhost:3101;https://socialautomation.ademartognasca.com.br"
+      ConnectionStrings__PostgreSQL: "Host=postgres;Port=5432;Database=socialautomation;Username=postgres;Password=postgres"
+      Redis__ConnectionString: "redis:6379"
+      Jwt__Secret: "super-secret-key-for-development-minimum-32-chars!"
+      Jwt__Issuer: "SocialAutomation"
+      Jwt__Audience: "SocialAutomation"
+      Jwt__ExpirationMinutes: "60"
+      Jwt__RefreshExpirationDays: "30"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: src/SocialAutomation.Worker/Dockerfile
+    container_name: sa-worker
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__PostgreSQL: "Host=postgres;Port=5432;Database=socialautomation;Username=postgres;Password=postgres"
+      Redis__ConnectionString: "redis:6379"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend/socialautomation-web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: "https://api-socialautomation.ademartognasca.com.br"
+    container_name: sa-frontend
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    environment:
+      NEXT_PUBLIC_API_URL: "https://api-socialautomation.ademartognasca.com.br"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  redis_data:
