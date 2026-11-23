@@ -1,4 +1,4 @@
-﻿using Dapper;
+using Dapper;
 using SocialAutomation.Domain.Entities;
 using SocialAutomation.Domain.Interfaces.Repositories;
 
@@ -111,7 +111,7 @@ public class ContentRepository : IContentRepository
     public async Task DeleteAsync(Guid id, Guid tenantId, CancellationToken ct = default)
     {
         using var connection = _connectionFactory.CreateConnection();
-        await connection.ExecuteAsync("DELETE FROM content_items WHERE id = @Id AND tenant_id = @TenantId", new { Id = id, TenantId = tenantId });
+        await connection.ExecuteAsync("DELETE FROM content_items WHERE id = @Id AND tenant_id = @TenantId AND status NOT IN ('Processando', 'Publicado')", new { Id = id, TenantId = tenantId });
     }
 
     public async Task SaveReelScenesAsync(Guid contentItemId, Guid tenantId, IEnumerable<ReelScene> scenes, CancellationToken ct = default)
@@ -149,9 +149,25 @@ public class ContentRepository : IContentRepository
             new { ContentItemId = contentItemId });
     }
 
+    public async Task<bool> TryClaimPublicationAsync(Guid id, Guid tenantId, CancellationToken ct)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        return await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE content_items SET status = 'Processando', updated_at = NOW()
+            WHERE id = @Id AND tenant_id = @TenantId AND status = 'Agendado' AND scheduled_at <= NOW()
+            """, new { Id = id, TenantId = tenantId }, cancellationToken: ct)) == 1;
+    }
+
     public async Task<IEnumerable<ContentItem>> GetPendingScheduledContentAsync(int limit = 20, CancellationToken ct = default)
     {
         using var connection = _connectionFactory.CreateConnection();
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE content_items SET status = 'Erro', updated_at = NOW(),
+                error_message = 'Publicação interrompida. Confira o Instagram antes de tentar novamente.'
+            WHERE status = 'Processando' AND updated_at < NOW() - INTERVAL '1 hour'
+            """, cancellationToken: ct));
         return await connection.QueryAsync<ContentItem>(
             @"SELECT id, tenant_id AS TenantId, instagram_account_id AS InstagramAccountId,
                      type, title, caption, hashtags, cta, media_urls AS MediaUrls,

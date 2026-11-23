@@ -1,4 +1,4 @@
-﻿using SocialAutomation.Domain.Entities;
+using SocialAutomation.Domain.Entities;
 
 namespace SocialAutomation.Domain.Interfaces.Repositories;
 
@@ -17,5 +17,6 @@ public interface IInboxRepository
     // Mensagens
     Task<IEnumerable<Message>> GetMessagesAsync(Guid conversationId, Guid tenantId, int limit = 50, CancellationToken ct = default);
     Task<Guid> CreateMessageAsync(Message message, CancellationToken ct = default);
-    Task<bool> MessageExistsByInstagramIdAsync(string instagramMessageId, CancellationToken ct = default);
+    Task<bool> TryCreateInstagramMessageAsync(Message message, Guid accountId, CancellationToken ct);
+    Task<bool> HasRecentInstagramConversationAsync(Guid tenantId, Guid accountId, string recipientId, DateTime since, CancellationToken ct);
 }

@@ -13,7 +13,6 @@ namespace SocialAutomation.Infrastructure.Instagram;
 public class InstagramClient : IInstagramClient
 {
     private readonly HttpClient _httpClient;
-    private readonly IConfiguration _configuration;
     private readonly ILogger<InstagramClient> _logger;
     private readonly IIntegrationLogRepository _integrationLogRepository;
 
@@ -29,12 +28,11 @@ public class InstagramClient : IInstagramClient
         IIntegrationLogRepository integrationLogRepository)
     {
         _httpClient = httpClient;
-        _configuration = configuration;
         _logger = logger;
         _integrationLogRepository = integrationLogRepository;
 
-        _appId = _configuration["Instagram:AppId"] ?? throw new InvalidOperationException("Instagram:AppId not configured.");
-        _appSecret = _configuration["Instagram:AppSecret"] ?? throw new InvalidOperationException("Instagram:AppSecret not configured.");
+        _appId = configuration["Instagram:AppId"] ?? string.Empty;
+        _appSecret = configuration["Instagram:AppSecret"] ?? string.Empty;
     }
 
     public string GetAuthorizationUrl(string state, string redirectUri)
@@ -44,12 +42,12 @@ public class InstagramClient : IInstagramClient
             "pages_show_list",
             "pages_read_engagement",
             "pages_manage_metadata",
-            "pages_manage_posts",
+            "pages_messaging",
+            "business_management",
             "instagram_basic",
             "instagram_manage_messages",
             "instagram_manage_comments",
             "instagram_content_publish",
-            "pages_manage_posts",
         };
 
         var scopeString = Uri.EscapeDataString(string.Join(",", scopes));
@@ -63,7 +61,7 @@ public class InstagramClient : IInstagramClient
         var url = $"{GraphApiBaseUrl}/{GraphApiVersion}/oauth/access_token" +
                   $"?client_id={_appId}" +
                   $"&redirect_uri={Uri.EscapeDataString(redirectUri)}" +
-                  $"&client_secret={_appSecret}" +
+                  $"&client_secret={Uri.EscapeDataString(_appSecret)}" +
                   $"&code={Uri.EscapeDataString(code)}";
 
         return await ExecuteWithLoggingAsync<MetaOAuthTokenResponse>(HttpMethod.Get, url, "ExchangeCodeForToken", null, null, ct);
@@ -74,7 +72,7 @@ public class InstagramClient : IInstagramClient
         var url = $"{GraphApiBaseUrl}/{GraphApiVersion}/oauth/access_token" +
                   $"?grant_type=fb_exchange_token" +
                   $"&client_id={_appId}" +
-                  $"&client_secret={_appSecret}" +
+                  $"&client_secret={Uri.EscapeDataString(_appSecret)}" +
                   $"&fb_exchange_token={shortLivedToken}";
 
         return await ExecuteWithLoggingAsync<MetaOAuthTokenResponse>(HttpMethod.Get, url, "GetLongLivedUserToken", null, null, ct);
@@ -91,9 +89,9 @@ public class InstagramClient : IInstagramClient
 
     public async Task<bool> SubscribeAppToPageWebhooksAsync(string pageId, string pageAccessToken, CancellationToken ct = default)
     {
-        var url = $"{GraphApiBaseUrl}/{GraphApiVersion}/{pageId}/subscribed_apps?subscribed_fields=messages,message_deliveries,message_reads,message_reactions,feed&access_token={pageAccessToken}";
+        var url = $"{GraphApiBaseUrl}/{GraphApiVersion}/{pageId}/subscribed_apps?subscribed_fields=messages,message_deliveries,message_reads&access_token={pageAccessToken}";
 
-        var response = await ExecuteWithLoggingAsync<JsonDocument>(HttpMethod.Post, url, "SubscribeAppToPageWebhooks", null, null, ct);
+        using var response = await ExecuteWithLoggingAsync<JsonDocument>(HttpMethod.Post, url, "SubscribeAppToPageWebhooks", null, null, ct);
         if (response != null && response.RootElement.TryGetProperty("success", out var successEl))
         {
             return successEl.GetBoolean();
@@ -109,16 +107,17 @@ public class InstagramClient : IInstagramClient
         string text,
         CancellationToken ct = default)
     {
-        var url = $"{GraphApiBaseUrl}/{GraphApiVersion}/{pageId}/messages?access_token={pageAccessToken}";
+        var url = $"{GraphApiBaseUrl}/{GraphApiVersion}/{pageId}/messages";
 
         var payload = new
         {
+            messaging_type = "RESPONSE",
             recipient = new { id = recipientInstagramScopedId },
             message = new { text }
         };
 
         var jsonContent = JsonSerializer.Serialize(payload);
-        return await ExecuteWithLoggingAsync<MetaSendMessageResponse>(HttpMethod.Post, url, "SendTextMessage", jsonContent, null, ct);
+        return await ExecuteWithLoggingAsync<MetaSendMessageResponse>(HttpMethod.Post, url, "SendTextMessage", jsonContent, null, ct, pageAccessToken);
     }
 
     public async Task<MetaUserProfileResponse?> GetInstagramUserProfileAsync(
@@ -130,13 +129,93 @@ public class InstagramClient : IInstagramClient
         return await ExecuteWithLoggingAsync<MetaUserProfileResponse>(HttpMethod.Get, url, "GetInstagramUserProfile", null, null, ct);
     }
 
+    public async Task<JsonElement?> SearchAsync(string businessId, string token, string query, bool hashtag, CancellationToken ct)
+    {
+        var graph = $"{GraphApiBaseUrl}/{GraphApiVersion}";
+        if (!hashtag)
+        {
+            var fields = Uri.EscapeDataString($"business_discovery.username({query}){{username,name,biography,website,profile_picture_url,followers_count,media_count}}");
+            var profile = await ReadGraphAsync(HttpMethod.Get, $"{graph}/{businessId}?fields={fields}", token, null, ct);
+            return profile.TryGetProperty("business_discovery", out var result) ? result : null;
+        }
+
+        var tags = await ReadGraphAsync(HttpMethod.Get,
+            $"{graph}/ig_hashtag_search?user_id={businessId}&q={Uri.EscapeDataString(query)}", token, null, ct);
+        if (tags.GetProperty("data").GetArrayLength() == 0)
+            return null;
+
+        var tagId = tags.GetProperty("data")[0].GetProperty("id").GetString();
+        var media = await ReadGraphAsync(HttpMethod.Get,
+            $"{graph}/{tagId}/top_media?user_id={businessId}&fields=id,caption,media_type,permalink,like_count,comments_count&limit=12",
+            token, null, ct);
+        return media.GetProperty("data");
+    }
+
+    public async Task<string> PublishAsync(string businessId, string token, string type, string mediaUrl, string caption, CancellationToken ct)
+    {
+        var graph = $"{GraphApiBaseUrl}/{GraphApiVersion}";
+        var options = new Dictionary<string, string>
+        {
+            [type == "Reel" ? "video_url" : "image_url"] = mediaUrl
+        };
+
+        if (type != "Story")
+            options["caption"] = caption;
+        if (type == "Reel")
+            options["media_type"] = "REELS";
+        if (type == "Story")
+            options["media_type"] = "STORIES";
+
+        var container = await ReadGraphAsync(HttpMethod.Post, $"{graph}/{businessId}/media", token, options, ct);
+        var id = container.GetProperty("id").GetString();
+        for (var attempt = 0; attempt < 24; attempt++)
+        {
+            var status = await ReadGraphAsync(HttpMethod.Get, $"{graph}/{id}?fields=status_code", token, null, ct);
+            var code = status.GetProperty("status_code").GetString();
+            if (code == "FINISHED")
+            {
+                var publication = await ReadGraphAsync(HttpMethod.Post, $"{graph}/{businessId}/media_publish", token,
+                    new Dictionary<string, string> { ["creation_id"] = id! }, ct);
+                return publication.GetProperty("id").GetString() ?? throw new InvalidOperationException("A Meta não retornou o ID da publicação.");
+            }
+
+            if (code is "ERROR" or "EXPIRED")
+                throw new InvalidOperationException($"A Meta encerrou o processamento da mídia com estado {code}.");
+
+            await Task.Delay(TimeSpan.FromSeconds(5), ct);
+        }
+
+        throw new InvalidOperationException("A mídia não ficou pronta no Instagram dentro do prazo.");
+    }
+
+    private async Task<JsonElement> ReadGraphAsync(HttpMethod method, string url, string token,
+        Dictionary<string, string>? fields, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(method, url);
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        if (fields is not null)
+            request.Content = new FormUrlEncodedContent(fields);
+
+        using var response = await _httpClient.SendAsync(request, ct);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        if (!response.IsSuccessStatusCode)
+        {
+            var code = document.RootElement.TryGetProperty("error", out var error) && error.TryGetProperty("code", out var value)
+                ? value.ToString() : "indisponível";
+            throw new InvalidOperationException($"A Meta rejeitou a operação (HTTP {(int)response.StatusCode}, código {code}).");
+        }
+
+        return document.RootElement.Clone();
+    }
+
     private async Task<T?> ExecuteWithLoggingAsync<T>(
         HttpMethod method,
         string url,
         string operationName,
         string? jsonPayload,
         Guid? tenantId,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? bearerToken = null)
     {
         var stopwatch = Stopwatch.StartNew();
         var log = new IntegrationLog
@@ -147,13 +226,14 @@ public class InstagramClient : IInstagramClient
             Operation = operationName,
             Endpoint = CleanUrlForLogging(url),
             HttpMethod = method.Method,
-            RequestPayload = jsonPayload,
             CreatedAt = DateTime.UtcNow
         };
 
         try
         {
             using var request = new HttpRequestMessage(method, url);
+            if (bearerToken is not null)
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
             if (jsonPayload != null)
             {
                 request.Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
@@ -165,30 +245,45 @@ public class InstagramClient : IInstagramClient
             log.StatusCode = (int)response.StatusCode;
 
             var responseBody = await response.Content.ReadAsStringAsync(ct);
-            log.ResponsePayload = CleanResponseForLogging(responseBody);
             log.Success = response.IsSuccessStatusCode;
 
             if (!response.IsSuccessStatusCode)
             {
-                log.ErrorMessage = responseBody;
-                _logger.LogWarning("Meta API call failed [{Operation}]: {StatusCode} - {Body}", operationName, response.StatusCode, responseBody);
-                await _integrationLogRepository.CreateAsync(log, ct);
+                log.ErrorMessage = $"Meta HTTP {(int)response.StatusCode}";
+                _logger.LogWarning("Meta API call failed [{Operation}]: {StatusCode}", operationName, response.StatusCode);
+                await WriteIntegrationLogAsync(log, ct);
                 return default;
             }
 
-            await _integrationLogRepository.CreateAsync(log, ct);
+            await WriteIntegrationLogAsync(log, ct);
             return JsonSerializer.Deserialize<T>(responseBody);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
             log.DurationMs = stopwatch.ElapsedMilliseconds;
             log.Success = false;
-            log.ErrorMessage = ex.Message;
+            log.ErrorMessage = ex.GetType().Name;
 
-            _logger.LogError(ex, "Exception during Meta API call [{Operation}]", operationName);
-            await _integrationLogRepository.CreateAsync(log, ct);
+            _logger.LogError("Exception {ErrorType} during Meta API call [{Operation}]", ex.GetType().Name, operationName);
+            await WriteIntegrationLogAsync(log, ct);
             return default;
+        }
+    }
+
+    private async Task WriteIntegrationLogAsync(IntegrationLog log, CancellationToken ct)
+    {
+        try
+        {
+            await _integrationLogRepository.CreateAsync(log, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Falha ao gravar metadado da chamada à Meta: {ErrorType}", ex.GetType().Name);
         }
     }
 
@@ -197,11 +292,7 @@ public class InstagramClient : IInstagramClient
         var cleaned = System.Text.RegularExpressions.Regex.Replace(url, @"access_token=[^&]+", "access_token=REDACTED");
         cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"client_secret=[^&]+", "client_secret=REDACTED");
         cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"fb_exchange_token=[^&]+", "fb_exchange_token=REDACTED");
-        return cleaned;
+        return System.Text.RegularExpressions.Regex.Replace(cleaned, @"([?&])code=[^&]+", "$1code=REDACTED");
     }
 
-    private static string CleanResponseForLogging(string response)
-    {
-        return response.Length > 2000 ? response[..2000] + "... [truncated]" : response;
-    }
 }

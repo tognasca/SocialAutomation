@@ -64,7 +64,7 @@ public static class DependencyInjection
 
 
         // HttpClients
-        services.AddHttpClient<IInstagramClient, InstagramClient>();
+        services.AddHttpClient<IInstagramClient, InstagramClient>().RemoveAllLoggers();
 
         // Redis
         var redisConnectionString = configuration["Redis:ConnectionString"] ?? "localhost:6379";

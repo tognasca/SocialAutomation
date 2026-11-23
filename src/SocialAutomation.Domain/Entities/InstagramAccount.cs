@@ -15,6 +15,7 @@ public class InstagramAccount
     public string? Name { get; set; }
     public string? ProfilePictureUrl { get; set; }
     public string AccessToken { get; set; } = string.Empty;
+    public string? UserAccessToken { get; set; }
     public DateTime? TokenExpiresAt { get; set; }
     public InstagramAccountStatus Status { get; set; } = InstagramAccountStatus.Active;
     public bool WebhookSubscribed { get; set; }

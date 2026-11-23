@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Configuration;
+using System.Security.Cryptography;
+using System.Text;
 
 using Dapper;
 using SocialAutomation.Domain.Entities;
@@ -10,24 +13,30 @@ public class InstagramAccountRepository : IInstagramAccountRepository
 {
     private readonly DbConnectionFactory _connectionFactory;
 
-    public InstagramAccountRepository(DbConnectionFactory connectionFactory)
+    private readonly IConfiguration _configuration;
+
+    public InstagramAccountRepository(DbConnectionFactory connectionFactory, IConfiguration configuration)
     {
         _connectionFactory = connectionFactory;
+        _configuration = configuration;
     }
 
     public async Task<InstagramAccount?> GetByIdAsync(Guid id, Guid tenantId, CancellationToken ct = default)
     {
         using var connection = _connectionFactory.CreateConnection();
-        return await connection.QueryFirstOrDefaultAsync<InstagramAccount>(
+        var account = await connection.QueryFirstOrDefaultAsync<InstagramAccount>(
             @"SELECT id, tenant_id AS TenantId, instagram_business_id AS InstagramBusinessId,
                      instagram_user_id AS InstagramUserId, page_id AS PageId, page_name AS PageName,
                      username, name, profile_picture_url AS ProfilePictureUrl,
-                     access_token AS AccessToken, token_expires_at AS TokenExpiresAt,
+                     access_token AS AccessToken, user_access_token AS UserAccessToken, token_expires_at AS TokenExpiresAt,
                      status, webhook_subscribed AS WebhookSubscribed, scopes,
                      created_at AS CreatedAt, updated_at AS UpdatedAt
               FROM instagram_accounts
               WHERE id = @Id AND tenant_id = @TenantId",
             new { Id = id, TenantId = tenantId });
+        if (account?.UserAccessToken is { } encrypted)
+            account.UserAccessToken = Decrypt(encrypted, tenantId);
+        return account;
     }
 
     public async Task<InstagramAccount?> GetByBusinessIdAsync(string businessId, CancellationToken ct = default)
@@ -41,7 +50,8 @@ public class InstagramAccountRepository : IInstagramAccountRepository
                      status, webhook_subscribed AS WebhookSubscribed, scopes,
                      created_at AS CreatedAt, updated_at AS UpdatedAt
               FROM instagram_accounts
-              WHERE instagram_business_id = @BusinessId AND status = 1",
+              WHERE instagram_business_id = @BusinessId AND status = 1
+                AND (SELECT count(*) FROM instagram_accounts WHERE instagram_business_id = @BusinessId AND status = 1) = 1",
             new { BusinessId = businessId });
     }
 
@@ -56,7 +66,8 @@ public class InstagramAccountRepository : IInstagramAccountRepository
                      status, webhook_subscribed AS WebhookSubscribed, scopes,
                      created_at AS CreatedAt, updated_at AS UpdatedAt
               FROM instagram_accounts
-              WHERE page_id = @PageId AND status = 1",
+              WHERE page_id = @PageId AND status = 1
+                AND (SELECT count(*) FROM instagram_accounts WHERE page_id = @PageId AND status = 1) = 1",
             new { PageId = pageId });
     }
 
@@ -82,12 +93,12 @@ public class InstagramAccountRepository : IInstagramAccountRepository
         var sql = @"
             INSERT INTO instagram_accounts (
                 id, tenant_id, instagram_business_id, instagram_user_id, page_id, page_name,
-                username, name, profile_picture_url, access_token, token_expires_at, status,
+                username, name, profile_picture_url, access_token, user_access_token, token_expires_at, status,
                 webhook_subscribed, scopes, created_at, updated_at
             )
             VALUES (
                 @Id, @TenantId, @InstagramBusinessId, @InstagramUserId, @PageId, @PageName,
-                @Username, @Name, @ProfilePictureUrl, @AccessToken, @TokenExpiresAt, @Status,
+                @Username, @Name, @ProfilePictureUrl, @AccessToken, @UserAccessToken, @TokenExpiresAt, @Status,
                 @WebhookSubscribed, @Scopes, @CreatedAt, @UpdatedAt
             )
             ON CONFLICT (tenant_id, instagram_business_id)
@@ -98,6 +109,7 @@ public class InstagramAccountRepository : IInstagramAccountRepository
                 name = EXCLUDED.name,
                 profile_picture_url = EXCLUDED.profile_picture_url,
                 access_token = EXCLUDED.access_token,
+                user_access_token = EXCLUDED.user_access_token,
                 token_expires_at = EXCLUDED.token_expires_at,
                 status = EXCLUDED.status,
                 webhook_subscribed = EXCLUDED.webhook_subscribed,
@@ -117,6 +129,7 @@ public class InstagramAccountRepository : IInstagramAccountRepository
             account.Name,
             account.ProfilePictureUrl,
             account.AccessToken,
+            UserAccessToken = account.UserAccessToken is { } token ? Encrypt(token, account.TenantId) : null,
             account.TokenExpiresAt,
             Status = (short)account.Status,
             account.WebhookSubscribed,
@@ -131,7 +144,9 @@ public class InstagramAccountRepository : IInstagramAccountRepository
         using var connection = _connectionFactory.CreateConnection();
         await connection.ExecuteAsync(
             @"UPDATE instagram_accounts
-              SET status = @Status, updated_at = NOW()
+              SET status = @Status,
+                  user_access_token = CASE WHEN @Status = 3 THEN NULL ELSE user_access_token END,
+                  updated_at = NOW()
               WHERE id = @Id AND tenant_id = @TenantId",
             new { Id = id, TenantId = tenantId, Status = (short)status });
     }
@@ -160,5 +175,34 @@ public class InstagramAccountRepository : IInstagramAccountRepository
         return await connection.QueryFirstOrDefaultAsync<int>(
             "SELECT COUNT(*) FROM instagram_accounts WHERE tenant_id = @TenantId AND status = 1",
             new { TenantId = tenantId });
+    }
+    private byte[] GetEncryptionKey()
+    {
+        var key = _configuration["Instagram:TokenEncryptionKey"];
+        if (string.IsNullOrWhiteSpace(key) || key.Length < 32)
+            throw new InvalidOperationException("Configure Instagram:TokenEncryptionKey com uma chave aleatória de pelo menos 32 caracteres.");
+
+        return SHA256.HashData(Encoding.UTF8.GetBytes(key));
+    }
+
+    private string Encrypt(string token, Guid tenantId)
+    {
+        var nonce = RandomNumberGenerator.GetBytes(12);
+        var plaintext = Encoding.UTF8.GetBytes(token);
+        var ciphertext = new byte[plaintext.Length];
+        var tag = new byte[16];
+        using var cipher = new AesGcm(GetEncryptionKey(), tag.Length);
+        cipher.Encrypt(nonce, plaintext, ciphertext, tag, tenantId.ToByteArray());
+        return Convert.ToBase64String([.. nonce, .. tag, .. ciphertext]);
+    }
+
+    private string Decrypt(string token, Guid tenantId)
+    {
+        var encoded = Convert.FromBase64String(token);
+        var plaintext = new byte[encoded.Length - 28];
+        using var cipher = new AesGcm(GetEncryptionKey(), 16);
+        cipher.Decrypt(encoded.AsSpan(0, 12), encoded.AsSpan(28), encoded.AsSpan(12, 16),
+            plaintext, tenantId.ToByteArray());
+        return Encoding.UTF8.GetString(plaintext);
     }
 }

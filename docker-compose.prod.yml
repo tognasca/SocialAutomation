@@ -37,6 +37,7 @@ services:
       Jwt__Issuer: "SocialAutomation"
       Jwt__Audience: "SocialAutomation"
       Instagram__AppId: "${INSTAGRAM_APP_ID}"
+      Instagram__TokenEncryptionKey: "${INSTAGRAM_TOKEN_ENCRYPTION_KEY}"
       Instagram__AppSecret: "${INSTAGRAM_APP_SECRET}"
       Instagram__WebhookVerifyToken: "${INSTAGRAM_WEBHOOK_VERIFY_TOKEN}"
       AI__ApiKey: "${OPENAI_API_KEY}"
@@ -58,6 +59,7 @@ services:
       ConnectionStrings__PostgreSQL: "Host=postgres;Port=5432;Database=socialautomation_prod;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};SSL Mode=Prefer;"
       Redis__ConnectionString: "redis:6379,password=${REDIS_PASSWORD}"
       Instagram__AppId: "${INSTAGRAM_APP_ID}"
+      Instagram__TokenEncryptionKey: "${INSTAGRAM_TOKEN_ENCRYPTION_KEY}"
       Instagram__AppSecret: "${INSTAGRAM_APP_SECRET}"
       AI__ApiKey: "${OPENAI_API_KEY}"
     depends_on:

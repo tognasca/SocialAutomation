@@ -1,4 +1,4 @@
-﻿
+
 using SocialAutomation.Domain.Entities;
 
 namespace SocialAutomation.Domain.Interfaces.Repositories;
@@ -6,7 +6,7 @@ namespace SocialAutomation.Domain.Interfaces.Repositories;
 public interface ILeadRepository
 {
     Task<Lead?> GetByIdAsync(Guid id, Guid tenantId, CancellationToken ct = default);
-    Task<Lead?> GetByInstagramUserIdAsync(string instagramUserId, Guid tenantId, CancellationToken ct = default);
+    Task<Lead?> GetByInstagramUserIdAsync(string instagramUserId, Guid tenantId, Guid accountId, CancellationToken ct = default);
     Task<Lead?> GetByInstagramUsernameAsync(string username, Guid tenantId, CancellationToken ct = default);
     Task<(IEnumerable<Lead> Items, int Total)> GetPagedAsync(
         Guid tenantId, int page, int pageSize, string? search = null, string? status = null,

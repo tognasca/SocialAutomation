@@ -1,4 +1,4 @@
-﻿using SocialAutomation.Application.Common;
+using SocialAutomation.Application.Common;
 using SocialAutomation.Domain.Entities;
 using SocialAutomation.Domain.Interfaces.Repositories;
 using SocialAutomation.Domain.Interfaces.Services;
@@ -44,7 +44,8 @@ public class AiConversationService
         Guid tenantId,
         Guid conversationId,
         string incomingMessage,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool saveReply = true)
     {
         var sw = Stopwatch.StartNew();
         var conversation = await _inboxRepository.GetConversationByIdAsync(conversationId, tenantId, ct);
@@ -189,6 +190,9 @@ public class AiConversationService
 
             return Result.Ok(decision.Reply);
         }
+
+        if (!saveReply)
+            return Result.Ok(decision.Reply);
 
         // Salva resposta da IA no inbox
         var aiMessage = new Message

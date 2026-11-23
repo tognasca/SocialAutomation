@@ -1,4 +1,4 @@
-﻿using Dapper;
+using Dapper;
 using SocialAutomation.Domain.Entities;
 using SocialAutomation.Domain.Interfaces.Repositories;
 
@@ -129,9 +129,9 @@ public class InboxRepository : IInboxRepository
                    status, created_at AS CreatedAt
             FROM messages
             WHERE conversation_id = @ConversationId AND tenant_id = @TenantId
-            ORDER BY created_at ASC
+            ORDER BY created_at DESC
             LIMIT @Limit";
-        return await connection.QueryAsync<Message>(sql, new { ConversationId = conversationId, TenantId = tenantId, Limit = limit });
+        return (await connection.QueryAsync<Message>(sql, new { ConversationId = conversationId, TenantId = tenantId, Limit = limit })).Reverse();
     }
 
     public async Task<Guid> CreateMessageAsync(Message message, CancellationToken ct = default)
@@ -144,11 +144,44 @@ public class InboxRepository : IInboxRepository
         return message.Id;
     }
 
-    public async Task<bool> MessageExistsByInstagramIdAsync(string instagramMessageId, CancellationToken ct = default)
+    public async Task<bool> TryCreateInstagramMessageAsync(Message message, Guid accountId, CancellationToken ct)
     {
         using var connection = _connectionFactory.CreateConnection();
-        return await connection.QueryFirstOrDefaultAsync<bool>(
-            "SELECT EXISTS(SELECT 1 FROM messages WHERE instagram_message_id = @Id)",
-            new { Id = instagramMessageId });
+        return await connection.ExecuteAsync(new CommandDefinition(
+            """
+            WITH receipt AS (
+                INSERT INTO instagram_message_receipts (account_id, message_id)
+                SELECT @AccountId, @InstagramMessageId
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM messages m JOIN conversations c ON c.id = m.conversation_id
+                    WHERE c.instagram_account_id = @AccountId AND m.instagram_message_id = @InstagramMessageId
+                )
+                ON CONFLICT DO NOTHING RETURNING message_id
+            )
+            INSERT INTO messages (id, tenant_id, conversation_id, sender_type, instagram_message_id, content, status, created_at)
+            SELECT @Id, @TenantId, @ConversationId, @SenderType, message_id, @Content, @Status, @CreatedAt
+            FROM receipt
+            """,
+            new { AccountId = accountId, message.Id, message.TenantId, message.ConversationId, message.SenderType,
+                message.InstagramMessageId, message.Content, message.Status, message.CreatedAt },
+            cancellationToken: ct)) == 1;
+    }
+
+    public async Task<bool> HasRecentInstagramConversationAsync(Guid tenantId, Guid accountId, string recipientId,
+        DateTime since, CancellationToken ct)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        return await connection.QuerySingleAsync<bool>(new CommandDefinition(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM conversations c
+                JOIN leads l ON l.id = c.lead_id AND l.tenant_id = c.tenant_id
+                JOIN messages m ON m.conversation_id = c.id AND m.tenant_id = c.tenant_id
+                WHERE c.tenant_id = @TenantId AND c.instagram_account_id = @AccountId
+                  AND l.instagram_user_id = @RecipientId AND m.sender_type = 'Lead'
+                  AND m.instagram_message_id IS NOT NULL AND m.created_at >= @Since
+            )
+            """, new { TenantId = tenantId, AccountId = accountId, RecipientId = recipientId, Since = since },
+            cancellationToken: ct));
     }
 }

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -21,6 +21,11 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\SocialAutomation.Api\SocialAutomation.Api.csproj" />
     <ProjectReference Include="..\..\src\SocialAutomation.Infrastructure\SocialAutomation.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../src/SocialAutomation.Infrastructure/Database/migrations/*.sql"
+      Link="migrations/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

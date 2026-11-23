@@ -1,4 +1,4 @@
-﻿using SocialAutomation.Domain.Entities;
+using SocialAutomation.Domain.Entities;
 
 namespace SocialAutomation.Domain.Interfaces.Repositories;
 
@@ -14,6 +14,8 @@ public interface IContentRepository
     // Scenes for Reels
     Task SaveReelScenesAsync(Guid contentItemId, Guid tenantId, IEnumerable<ReelScene> scenes, CancellationToken ct = default);
     Task<IEnumerable<ReelScene>> GetScenesByContentIdAsync(Guid contentItemId, CancellationToken ct = default);
+
+    Task<bool> TryClaimPublicationAsync(Guid id, Guid tenantId, CancellationToken ct);
 
     // Worker queries
     Task<IEnumerable<ContentItem>> GetPendingScheduledContentAsync(int limit = 20, CancellationToken ct = default);

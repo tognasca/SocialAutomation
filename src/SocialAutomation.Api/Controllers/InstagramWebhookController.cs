@@ -1,13 +1,11 @@
-﻿
+using SocialAutomation.Infrastructure.Instagram;
+
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using SocialAutomation.Application.Instagram.Services;
 using SocialAutomation.Domain.Entities;
 using SocialAutomation.Domain.Enums;
 using SocialAutomation.Domain.Interfaces.Repositories;
-using SocialAutomation.Infrastructure.Instagram;
-using StackExchange.Redis;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -22,20 +20,17 @@ public class InstagramWebhookController : ControllerBase
     private readonly ILogger<InstagramWebhookController> _logger;
     private readonly IInstagramWebhookEventRepository _webhookEventRepository;
     private readonly IInstagramAccountRepository _instagramAccountRepository;
-    private readonly IConnectionMultiplexer _redis;
 
     public InstagramWebhookController(
         IConfiguration configuration,
         ILogger<InstagramWebhookController> logger,
         IInstagramWebhookEventRepository webhookEventRepository,
-        IInstagramAccountRepository instagramAccountRepository,
-        IConnectionMultiplexer redis)
+        IInstagramAccountRepository instagramAccountRepository)
     {
         _configuration = configuration;
         _logger = logger;
         _webhookEventRepository = webhookEventRepository;
         _instagramAccountRepository = instagramAccountRepository;
-        _redis = redis;
     }
 
     // ==========================================================
@@ -54,7 +49,9 @@ public class InstagramWebhookController : ControllerBase
         if (mode == "subscribe" &&
             !string.IsNullOrWhiteSpace(configuredToken) &&
             !string.IsNullOrWhiteSpace(challenge) &&
-            verifyToken == configuredToken)
+            verifyToken is not null &&
+            CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(verifyToken), Encoding.UTF8.GetBytes(configuredToken)))
         {
             _logger.LogInformation(
                 "Instagram webhook verification successful.");
@@ -73,20 +70,13 @@ public class InstagramWebhookController : ControllerBase
     // ==========================================================
 
     [HttpPost]
+    [RequestSizeLimit(1024 * 1024)]
     public async Task<IActionResult> HandleWebhook(
         CancellationToken ct)
     {
         // ------------------------------------------------------
         // 1. LER OS BYTES ORIGINAIS DA REQUISICAO
         // ------------------------------------------------------
-
-        byte[] payloadBytes;
-
-        using (var buffer = new MemoryStream())
-        {
-            await Request.Body.CopyToAsync(buffer, ct);
-            payloadBytes = buffer.ToArray();
-        }
 
         // ------------------------------------------------------
         // 2. OBTER CABECALHO E SECRET
@@ -117,76 +107,18 @@ public class InstagramWebhookController : ControllerBase
                 "Assinatura do webhook ausente.");
         }
 
-        // ------------------------------------------------------
-        // 3. VALIDAR FORMATO DA ASSINATURA
-        // ------------------------------------------------------
+        byte[] payloadBytes;
 
-        const string prefix = "sha256=";
-
-        signatureHeader = signatureHeader.Trim();
-
-        if (!signatureHeader.StartsWith(
-                prefix,
-                StringComparison.OrdinalIgnoreCase))
+        using (var buffer = new MemoryStream())
         {
-            _logger.LogWarning(
-                "Instagram webhook rejected: Invalid signature prefix.");
-
-            return Unauthorized(
-                "Formato da assinatura invalido.");
+            await Request.Body.CopyToAsync(buffer, ct);
+            payloadBytes = buffer.ToArray();
         }
 
-        var signatureHex =
-            signatureHeader[prefix.Length..];
-
-        if (signatureHex.Length != 64)
+        if (!InstagramWebhookValidator.ValidateSignature(payloadBytes, signatureHeader, appSecret))
         {
-            _logger.LogWarning(
-                "Instagram webhook rejected: Invalid signature length.");
-
-            return Unauthorized(
-                "Tamanho da assinatura invalido.");
-        }
-
-        byte[] receivedHash;
-
-        try
-        {
-            receivedHash =
-                Convert.FromHexString(signatureHex);
-        }
-        catch (FormatException)
-        {
-            _logger.LogWarning(
-                "Instagram webhook rejected: Malformed signature.");
-
-            return Unauthorized(
-                "Assinatura malformada.");
-        }
-
-        // ------------------------------------------------------
-        // 4. VALIDAR HMAC-SHA256
-        // ------------------------------------------------------
-
-        var expectedHash = HMACSHA256.HashData(
-            Encoding.UTF8.GetBytes(appSecret),
-            payloadBytes);
-
-        var validSignature =
-            CryptographicOperations.FixedTimeEquals(
-                expectedHash,
-                receivedHash);
-
-        if (!validSignature)
-        {
-            _logger.LogWarning(
-                "Instagram webhook rejected: HMAC mismatch. " +
-                "PayloadBytes={PayloadBytes}, SignatureBytes={SignatureBytes}",
-                payloadBytes.Length,
-                receivedHash.Length);
-
-            return Unauthorized(
-                "Assinatura do webhook invalida.");
+            _logger.LogWarning("Instagram webhook rejected: invalid X-Hub-Signature-256.");
+            return Unauthorized("Assinatura do webhook inválida.");
         }
 
         _logger.LogInformation(
@@ -205,9 +137,11 @@ public class InstagramWebhookController : ControllerBase
                 JsonDocument.Parse(rawPayload);
 
             var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return BadRequest("Payload JSON inválido.");
 
             var objectType =
-                root.TryGetProperty("object", out var objEl)
+                root.TryGetProperty("object", out var objEl) && objEl.ValueKind == JsonValueKind.String
                     ? objEl.GetString() ?? "instagram"
                     : "instagram";
 
@@ -283,26 +217,6 @@ public class InstagramWebhookController : ControllerBase
                 var eventId =
                     $"{entryId}:{eventHash}";
 
-                // --------------------------------------------------
-                // 9. VERIFICAR DUPLICIDADE
-                // --------------------------------------------------
-
-                if (await _webhookEventRepository
-                    .ExistsAsync(eventId, ct))
-                {
-                    _logger.LogInformation(
-                        "Duplicate Instagram webhook skipped. " +
-                        "EventId={EventId}",
-                        eventId);
-
-                    duplicateCount++;
-                    continue;
-                }
-
-                // --------------------------------------------------
-                // 10. PERSISTIR EVENTO
-                // --------------------------------------------------
-
                 var webhookEvent = new InstagramWebhookEvent
                 {
                     Id = Guid.NewGuid(),
@@ -317,29 +231,11 @@ public class InstagramWebhookController : ControllerBase
                     CreatedAt = DateTime.UtcNow
                 };
 
-                await _webhookEventRepository
-                    .CreateAsync(webhookEvent, ct);
-
-                // --------------------------------------------------
-                // 11. ENVIAR EVENTO PARA REDIS
-                // --------------------------------------------------
-
-                var redisDb =
-                    _redis.GetDatabase();
-
-                var queueMessage =
-                    JsonSerializer.Serialize(new
-                    {
-                        webhookEvent.Id,
-                        webhookEvent.TenantId,
-                        webhookEvent.InstagramAccountId,
-                        webhookEvent.EventId,
-                        Payload = entryPayload
-                    });
-
-                await redisDb.ListRightPushAsync(
-                    "queue:instagram-webhook",
-                    queueMessage);
+                if (!await _webhookEventRepository.TryCreateAsync(webhookEvent, ct))
+                {
+                    duplicateCount++;
+                    continue;
+                }
 
                 queuedCount++;
 
@@ -381,9 +277,6 @@ public class InstagramWebhookController : ControllerBase
                 ex,
                 "Error processing incoming Instagram webhook.");
 
-            // Nao confirmar recebimento quando a persistencia
-            // ou o envio para Redis falhar.
-            // A Meta podera tentar entregar novamente.
             return StatusCode(
                 500,
                 new
@@ -393,70 +286,4 @@ public class InstagramWebhookController : ControllerBase
         }
     }
 
-    // ==========================================================
-    // POST - SIMULACAO DE DM
-    // ==========================================================
-
-    [HttpPost("simulate-dm")]
-    public async Task<IActionResult> SimulateIncomingDm(
-        [FromBody] SimulateDmRequest request,
-        [FromServices] InstagramWebhookProcessor processor,
-        CancellationToken ct)
-    {
-        // Bloqueia simulacao em producao.
-        // Endpoint de desenvolvimento nao deve ficar publico.
-        if (!HttpContext.RequestServices
-            .GetRequiredService<IHostEnvironment>()
-            .IsDevelopment())
-        {
-            return NotFound();
-        }
-
-        var fakePayload = JsonSerializer.Serialize(new
-        {
-            id = request.InstagramBusinessId,
-            time = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-            messaging = new[]
-            {
-                new
-                {
-                    sender = new
-                    {
-                        id = request.LeadInstagramScopedId
-                    },
-                    recipient = new
-                    {
-                        id = request.InstagramBusinessId
-                    },
-                    timestamp =
-                        DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    message = new
-                    {
-                        mid = $"mid_simulated_{Guid.NewGuid():N}",
-                        text = request.MessageText
-                    }
-                }
-            }
-        });
-
-        await processor.ProcessPayloadAsync(
-            fakePayload,
-            ct);
-
-        return Ok(new
-        {
-            success = true,
-            message =
-                "Webhook simulado processado com sucesso."
-        });
-    }
-
-    // ==========================================================
-    // DTO
-    // ==========================================================
-
-    public record SimulateDmRequest(
-        string InstagramBusinessId,
-        string LeadInstagramScopedId,
-        string MessageText);
 }

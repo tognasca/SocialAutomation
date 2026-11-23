@@ -1,18 +1,48 @@
 
 'use client'
 
+import Image from 'next/image'
 import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import api from '@/lib/api'
+import { isAxiosError } from 'axios'
+import { Input } from '@/components/ui/input'
 import type { InstagramAccount } from '@/types/instagram'
 import { Instagram, CheckCircle, AlertTriangle, Trash2, RefreshCw } from 'lucide-react'
+
+type SearchProfile = { username: string; name?: string; biography?: string; followers_count?: number; media_count?: number }
+type SearchPost = { id: string; caption?: string; permalink?: string; like_count?: number; comments_count?: number }
 
 export default function InstagramAccountsPage() {
   const [accounts, setAccounts] = useState<InstagramAccount[]>([])
   const [loading, setLoading] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState('')
+
+  const [searchAccount, setSearchAccount] = useState('')
+  const [query, setQuery] = useState('')
+  const [hashtag, setHashtag] = useState(true)
+  const [searching, setSearching] = useState(false)
+  const [searchMessage, setSearchMessage] = useState('')
+  const [results, setResults] = useState<SearchProfile | SearchPost[] | null>(null)
+
+  async function search(event: React.FormEvent) {
+    event.preventDefault()
+    setSearching(true)
+    setResults(null)
+    setSearchMessage('')
+    try {
+      const res = await api.get('/api/instagram/search', { params: { accountId: searchAccount, query, hashtag } })
+      setResults(res.data.data)
+      if (!res.data.data || (Array.isArray(res.data.data) && !res.data.data.length))
+        setSearchMessage('Nenhum resultado encontrado.')
+    } catch (err) {
+      setSearchMessage(isAxiosError(err) ? err.response?.data?.error ?? 'Erro ao pesquisar.' : 'Erro ao pesquisar.')
+    } finally {
+      setSearching(false)
+    }
+  }
 
   useEffect(() => {
     loadAccounts()
@@ -80,12 +110,62 @@ export default function InstagramAccountsPage() {
         </div>
       )}
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Pesquisa no Instagram</CardTitle>
+          <CardDescription>Veja publicações por hashtag ou consulte um perfil profissional pelo @usuário.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <form onSubmit={search} className="grid gap-3 sm:grid-cols-2">
+            <label>Conta
+              <select required className="block w-full rounded border p-2" value={searchAccount} onChange={e => setSearchAccount(e.target.value)}>
+                <option value="">Selecione</option>
+                {accounts.filter(account => account.status === 'Active').map(account =>
+                  <option key={account.id} value={account.id}>@{account.username}</option>)}
+              </select>
+            </label>
+            <label>Tipo de pesquisa
+              <select className="block w-full rounded border p-2" value={hashtag ? 'hashtag' : 'profile'} onChange={e => setHashtag(e.target.value === 'hashtag')}>
+                <option value="hashtag">Hashtag</option>
+                <option value="profile">Perfil profissional</option>
+              </select>
+            </label>
+            <label>{hashtag ? 'Hashtag' : 'Usuário'}
+              <Input value={query} required maxLength={101} onChange={e => setQuery(e.target.value)} />
+            </label>
+            <Button className="self-end" disabled={searching || !searchAccount}>{searching ? 'Pesquisando…' : 'Pesquisar'}</Button>
+          </form>
+          {searchMessage && <p role="status" className="text-sm">{searchMessage}</p>}
+          {Array.isArray(results) ? (
+            <ul className="space-y-2">
+              {results.map(post => (
+                <li key={post.id} className="rounded border p-3">
+                  <p className="line-clamp-3">{post.caption || 'Publicação do Instagram'}</p>
+                  <p className="text-sm text-muted-foreground">{post.like_count ?? 0} curtidas · {post.comments_count ?? 0} comentários</p>
+                  {post.permalink?.startsWith('https://www.instagram.com/') &&
+                    <a className="text-sm underline" href={post.permalink} target="_blank" rel="noreferrer">Abrir no Instagram</a>}
+                </li>
+              ))}
+            </ul>
+          ) : results && (
+            <div className="rounded border p-3">
+              <p className="font-semibold">@{results.username} {results.name}</p>
+              <p>{results.biography}</p>
+              <p className="text-sm text-muted-foreground">{results.followers_count ?? 0} seguidores · {results.media_count ?? 0} publicações</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {accounts.map((acc) => (
           <Card key={acc.id} className="relative overflow-hidden border shadow-sm">
             <CardHeader className="flex flex-row items-center gap-4 pb-2">
               {acc.profilePictureUrl ? (
-                <img
+                <Image
+                  unoptimized
+                  width={56}
+                  height={56}
                   src={acc.profilePictureUrl}
                   alt={acc.username}
                   className="h-14 w-14 rounded-full object-cover border"

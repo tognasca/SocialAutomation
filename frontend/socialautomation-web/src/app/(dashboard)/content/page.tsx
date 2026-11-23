@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import api from '@/lib/api'
+import { isAxiosError } from 'axios'
+import type { InstagramAccount } from '@/types/instagram'
 import type { ContentItem, GeneratedAiContent } from '@/types/content'
 import { FileText, Sparkles, Calendar, Video, Image, Plus, CheckCircle, Clock } from 'lucide-react'
 
@@ -15,9 +17,19 @@ export default function ContentPage() {
   const [generating, setGenerating] = useState(false)
   const [generated, setGenerated] = useState<GeneratedAiContent | null>(null)
   const [scheduledAt, setScheduledAt] = useState('')
+  const [accounts, setAccounts] = useState<InstagramAccount[]>([])
+  const [accountId, setAccountId] = useState('')
+  const [mediaUrl, setMediaUrl] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    loadContent()
+    void loadContent().catch(() => setError('Erro ao carregar publicações.'))
+    const refresh = window.setInterval(() => void loadContent().catch(() => {}), 10000)
+    void api.get('/api/instagram/publication-accounts')
+      .then(res => setAccounts(res.data.data.filter((account: InstagramAccount) => account.status === 'Active')))
+      .catch(() => setError('Não foi possível carregar as contas de publicação.'))
+    return () => window.clearInterval(refresh)
   }, [])
 
   const loadContent = async () => {
@@ -42,8 +54,11 @@ export default function ContentPage() {
     }
   }
 
-  const handleSaveContent = async () => {
-    if (!generated) return
+  const handleSaveContent = async (publishNow = false) => {
+    if (!generated?.title.trim() || saving) return
+    const date = publishNow ? new Date().toISOString() : scheduledAt ? new Date(scheduledAt).toISOString() : null
+    setSaving(true)
+    setError('')
     try {
       await api.post('/api/content', {
         type: contentType,
@@ -51,15 +66,19 @@ export default function ContentPage() {
         caption: generated.caption,
         hashtags: generated.hashtags,
         cta: generated.cta,
-        scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null,
+        scheduledAt: date,
+        instagramAccountId: accountId || null,
+        mediaUrls: mediaUrl.trim() ? [mediaUrl.trim()] : [],
         scenes: generated.reelScenes
       })
       setGenerated(null)
       setTopic('')
       setScheduledAt('')
-      loadContent()
-    } catch {
-      alert('Erro ao salvar publicação.')
+      await loadContent()
+    } catch (err) {
+      setError(isAxiosError(err) ? err.response?.data?.error ?? 'Erro ao salvar publicação.' : 'Erro ao atualizar lista.')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -69,8 +88,10 @@ export default function ContentPage() {
         <h1 className="text-3xl font-bold flex items-center gap-2">
           <FileText className="h-8 w-8 text-primary" /> Gerador & Calendário de Conteúdo
         </h1>
-        <p className="text-muted-foreground">Crie posts, carrosséis e roteiros de Reels com IA e agende suas publicações.</p>
+        <p className="text-muted-foreground">Crie legendas e roteiros com IA, publique ou agende conteúdo para o Instagram.</p>
       </div>
+
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Formulário de Geração IA */}
@@ -109,13 +130,21 @@ export default function ContentPage() {
               <Button type="submit" disabled={generating} className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white">
                 {generating ? 'IA Gerando Conteúdo...' : 'Gerar Publicação com IA'}
               </Button>
+              <Button type="button" variant="outline" onClick={() => setGenerated({
+                title: topic.trim(), caption: '', hashtags: [], cta: '', visualSuggestion: '', reelScenes: []
+              })} disabled={!topic.trim()}>Compor sem IA</Button>
             </form>
 
             {generated && (
               <div className="mt-6 p-4 border rounded-xl bg-purple-50/50 space-y-3 text-sm">
-                <h3 className="font-bold text-base text-purple-900">{generated.title}</h3>
-                <p className="whitespace-pre-line text-muted-foreground">{generated.caption}</p>
-                <p className="font-semibold text-primary">CTA: {generated.cta}</p>
+                <label className="block">Título
+                  <Input value={generated.title} onChange={e => setGenerated({ ...generated, title: e.target.value })} />
+                </label>
+                {contentType !== 'Story' && <label className="block">Legenda
+                  <textarea className="block min-h-20 w-full rounded border p-2" value={generated.caption}
+                    onChange={e => setGenerated({ ...generated, caption: e.target.value })} />
+                </label>}
+                {generated.cta && <p className="font-semibold text-primary">CTA: {generated.cta}</p>}
                 <div className="flex flex-wrap gap-1">
                   {generated.hashtags.map((h, i) => (
                     <span key={i} className="text-xs text-purple-700 bg-purple-100 px-2 py-0.5 rounded">{h}</span>
@@ -133,16 +162,32 @@ export default function ContentPage() {
                   </div>
                 )}
 
-                <div className="pt-3 border-t flex items-center gap-2">
+                <div className="pt-3 border-t space-y-2">
+                  <label className="block">Conta do Instagram
+                    <select className="block w-full rounded border p-2" value={accountId} onChange={e => setAccountId(e.target.value)}>
+                      <option value="">Selecione uma conta</option>
+                      {accounts.map(account => <option key={account.id} value={account.id}>@{account.username}</option>)}
+                    </select>
+                  </label>
+                  <label className="block">{contentType === 'Reel' ? 'URL pública do vídeo' : 'URL pública da imagem'}
+                    <Input type="url" placeholder="https://" value={mediaUrl} onChange={e => setMediaUrl(e.target.value)} />
+                  </label>
+                  <label className="block">Data e hora do agendamento
                   <Input
                     type="datetime-local"
                     value={scheduledAt}
                     onChange={(e) => setScheduledAt(e.target.value)}
                     className="text-xs"
                   />
-                  <Button onClick={handleSaveContent} size="sm">
-                    {scheduledAt ? 'Agendar' : 'Salvar Rascunho'}
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                  <Button onClick={() => handleSaveContent()} disabled={saving || !generated.title.trim() || (!!scheduledAt && (!accountId || !mediaUrl.trim()))} size="sm">
+                    {scheduledAt ? 'Agendar' : 'Salvar rascunho'}
                   </Button>
+                  <Button onClick={() => handleSaveContent(true)} disabled={saving || !generated.title.trim() || !accountId || !mediaUrl.trim()} size="sm">
+                    Publicar agora
+                  </Button>
+                  </div>
                 </div>
               </div>
             )}
@@ -167,6 +212,7 @@ export default function ContentPage() {
                     </span>
                   </div>
                   <p className="text-xs text-muted-foreground line-clamp-1">{item.caption}</p>
+                  {item.errorMessage && <p className="text-xs text-destructive">{item.errorMessage}</p>}
                   <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                     <Clock className="h-3 w-3" />
                     {item.scheduledAt ? `Agendado: ${new Date(item.scheduledAt).toLocaleString('pt-BR')}` : 'Rascunho'}

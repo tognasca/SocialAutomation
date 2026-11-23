@@ -1,4 +1,5 @@
-﻿
+using System.Text.Json;
+
 using SocialAutomation.Domain.Models.Instagram;
 
 namespace SocialAutomation.Domain.Interfaces.Services;
@@ -12,4 +13,6 @@ public interface IInstagramClient
     Task<bool> SubscribeAppToPageWebhooksAsync(string pageId, string pageAccessToken, CancellationToken ct = default);
     Task<MetaSendMessageResponse?> SendTextMessageAsync(string pageId, string pageAccessToken, string recipientInstagramScopedId, string text, CancellationToken ct = default);
     Task<MetaUserProfileResponse?> GetInstagramUserProfileAsync(string instagramScopedId, string pageAccessToken, CancellationToken ct = default);
+    Task<JsonElement?> SearchAsync(string businessId, string token, string query, bool hashtag, CancellationToken ct);
+    Task<string> PublishAsync(string businessId, string token, string type, string mediaUrl, string caption, CancellationToken ct);
 }

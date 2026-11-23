@@ -44,6 +44,10 @@ services:
       - "5010:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      Instagram__AppId: "${INSTAGRAM_APP_ID:-}"
+      Instagram__AppSecret: "${INSTAGRAM_APP_SECRET:-}"
+      Instagram__WebhookVerifyToken: "${INSTAGRAM_WEBHOOK_VERIFY_TOKEN:-}"
+      Instagram__TokenEncryptionKey: "${INSTAGRAM_TOKEN_ENCRYPTION_KEY:-}"
       App__AllowedOrigins: "http://localhost:3100;http://localhost:3101;https://socialautomation.ademartognasca.com.br"
       ConnectionStrings__PostgreSQL: "Host=postgres;Port=5432;Database=socialautomation;Username=postgres;Password=postgres"
       Redis__ConnectionString: "redis:6379"
@@ -66,6 +70,10 @@ services:
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      Instagram__AppId: "${INSTAGRAM_APP_ID:-}"
+      Instagram__AppSecret: "${INSTAGRAM_APP_SECRET:-}"
+      Instagram__WebhookVerifyToken: "${INSTAGRAM_WEBHOOK_VERIFY_TOKEN:-}"
+      Instagram__TokenEncryptionKey: "${INSTAGRAM_TOKEN_ENCRYPTION_KEY:-}"
       ConnectionStrings__PostgreSQL: "Host=postgres;Port=5432;Database=socialautomation;Username=postgres;Password=postgres"
       Redis__ConnectionString: "redis:6379"
     depends_on:

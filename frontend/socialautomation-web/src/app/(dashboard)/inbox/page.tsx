@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import api from '@/lib/api'
+import { isAxiosError } from 'axios'
 import type { Conversation, ChatMessage } from '@/types/inbox'
 import { MessageSquare, Send, Bot, User, Phone, Tag, MoreVertical } from 'lucide-react'
 
@@ -15,48 +16,62 @@ export default function InboxPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [newMessage, setNewMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  const [sendError, setSendError] = useState('')
+  const activeId = activeConv?.id
+  const lastMessageId = messages.at(-1)?.id
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    loadConversations()
-    const interval = setInterval(loadConversations, 10000) // Polling a cada 10s
+    const refresh = () => void loadConversations().catch(() => {})
+    refresh()
+    const interval = setInterval(refresh, 10000)
     return () => clearInterval(interval)
   }, [])
 
   useEffect(() => {
-    if (activeConv) {
-      loadMessages(activeConv.id)
+    if (!activeId) return
+    const controller = new AbortController()
+    const refresh = async () => {
+      try {
+        const res = await api.get(`/api/inbox/conversations/${activeId}/messages`, { signal: controller.signal })
+        if (!controller.signal.aborted) setMessages(res.data.data)
+      } catch {
+        // A próxima consulta pode atualizar a conversa.
+      }
     }
-  }, [activeConv])
+    void refresh()
+    const interval = setInterval(refresh, 5000)
+    return () => {
+      controller.abort()
+      clearInterval(interval)
+    }
+  }, [activeId])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [lastMessageId])
 
   const loadConversations = async () => {
     const res = await api.get('/api/inbox/conversations', { params: { page: 1, pageSize: 50 } })
-    setConversations(res.data.data.items)
-  }
-
-  const loadMessages = async (id: string) => {
-    const res = await api.get(`/api/inbox/conversations/${id}/messages`)
-    setMessages(res.data.data)
+    const list: Conversation[] = res.data.data.items
+    setConversations(list)
+    setActiveConv(previous => list.find(conversation => conversation.id === previous?.id) ?? previous)
   }
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!activeConv || !newMessage.trim()) return
+    if (!activeConv || !newMessage.trim() || loading) return
 
     try {
       setLoading(true)
-      const res = await api.post(`/api/inbox/conversations/${activeConv.id}/messages`, {
+      setSendError('')
+      await api.post(`/api/inbox/conversations/${activeConv.id}/messages`, {
         content: newMessage
       })
-      setMessages([...messages, res.data.data])
       setNewMessage('')
-      loadConversations() // Atualiza preview
-    } catch {
-      alert('Erro ao enviar mensagem')
+      void loadConversations().catch(() => {})
+    } catch (err) {
+      setSendError(isAxiosError(err) ? err.response?.data?.error ?? 'Erro ao enviar mensagem.' : 'Erro ao enviar mensagem.')
     } finally {
       setLoading(false)
     }
@@ -83,7 +98,13 @@ export default function InboxPage() {
           {conversations.map(conv => (
             <div
               key={conv.id}
-              onClick={() => setActiveConv(conv)}
+              onClick={() => {
+                if (activeId !== conv.id) {
+                  setMessages([])
+                  setSendError('')
+                }
+                setActiveConv(conv)
+              }}
               className={`p-4 border-b cursor-pointer hover:bg-muted/50 transition-colors ${activeConv?.id === conv.id ? 'bg-primary/5 border-l-4 border-l-primary' : ''}`}
             >
               <div className="flex justify-between items-start mb-1">
@@ -148,7 +169,8 @@ export default function InboxPage() {
                     </div>
                     <span className="text-[10px] text-muted-foreground mt-1 px-1">
                       {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      {isMine && msg.senderType === 'AI' && ' • IA'}
+                      {isMine && msg.senderType === 'AI' && ' · IA'}
+                      {msg.status === 'Failed' && ' · Falha no envio'}
                     </span>
                   </div>
                 )
@@ -160,9 +182,10 @@ export default function InboxPage() {
             <div className="p-4 bg-background border-t">
               {activeConv.mode === 'IA_ATIVA' && (
                 <div className="mb-2 text-xs text-purple-600 bg-purple-50 p-2 rounded text-center font-medium">
-                  A Inteligência Artificial está respondendo este lead. Clique em "Assumir" para intervir.
+                  A Inteligência Artificial está respondendo este lead. Clique em Assumir para intervir.
                 </div>
               )}
+              {sendError && <p role="alert" className="mb-2 text-xs text-destructive">{sendError}</p>}
               <form onSubmit={handleSendMessage} className="flex gap-2">
                 <Input
                   className="flex-1 rounded-full bg-muted/50 border-transparent focus-visible:ring-1"

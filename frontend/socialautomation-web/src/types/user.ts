@@ -35,3 +35,16 @@ export interface ApiResponse<T> {
   data?: T
   error?: string
 }
+export interface User {
+  id: string
+  name: string
+  email: string
+  roles: string[]
+  status: string
+  lastLoginAt?: string
+}
+
+export interface PagedResult<T> {
+  items: T[]
+  total: number
+}

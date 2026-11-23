@@ -6,11 +6,11 @@ namespace SocialAutomation.Infrastructure.Instagram;
 public static class InstagramWebhookValidator
 {
     public static bool ValidateSignature(
-        string payload,
+        ReadOnlySpan<byte> payload,
         string signatureHeader,
         string appSecret)
     {
-        if (string.IsNullOrWhiteSpace(payload) ||
+        if (payload.IsEmpty ||
             string.IsNullOrWhiteSpace(signatureHeader) ||
             string.IsNullOrWhiteSpace(appSecret))
             return false;
@@ -40,11 +40,10 @@ public static class InstagramWebhookValidator
             return false;
         }
 
-        var payloadBytes = Encoding.UTF8.GetBytes(payload);
         var secretBytes = Encoding.UTF8.GetBytes(appSecret);
 
         var calculatedHash =
-            HMACSHA256.HashData(secretBytes, payloadBytes);
+            HMACSHA256.HashData(secretBytes, payload);
 
         return CryptographicOperations.FixedTimeEquals(
             calculatedHash,

@@ -1,74 +1,57 @@
-﻿// src/SocialAutomation.Worker/Workers/InstagramWebhookWorker.cs
-
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using SocialAutomation.Application.Instagram.Services;
 using SocialAutomation.Domain.Enums;
 using SocialAutomation.Domain.Interfaces.Repositories;
-using StackExchange.Redis;
-using System.Text.Json;
 
 namespace SocialAutomation.Worker.Workers;
 
-public class InstagramWebhookWorker : BackgroundService
+public class InstagramWebhookWorker(
+    IServiceScopeFactory scopeFactory,
+    ILogger<InstagramWebhookWorker> logger) : BackgroundService
 {
-    private readonly IConnectionMultiplexer _redis;
-    private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ILogger<InstagramWebhookWorker> _logger;
-
-    public InstagramWebhookWorker(
-        IConnectionMultiplexer redis,
-        IServiceScopeFactory scopeFactory,
-        ILogger<InstagramWebhookWorker> logger)
-    {
-        _redis = redis;
-        _scopeFactory = scopeFactory;
-        _logger = logger;
-    }
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Instagram Webhook Worker iniciado escutando a fila Redis.");
-        var db = _redis.GetDatabase();
-
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                var item = await db.ListLeftPopAsync("queue:instagram-webhook");
-
-                if (item.IsNullOrEmpty)
+                using var scope = scopeFactory.CreateScope();
+                var repository = scope.ServiceProvider.GetRequiredService<IInstagramWebhookEventRepository>();
+                var item = await repository.ClaimNextAsync(stoppingToken);
+                if (item is not null)
                 {
-                    await Task.Delay(1000, stoppingToken);
+                    try
+                    {
+                        var processor = scope.ServiceProvider.GetRequiredService<InstagramWebhookProcessor>();
+                        if (item.TenantId is not Guid tenantId || item.InstagramAccountId is not Guid accountId)
+                        {
+                            await repository.UpdateStatusAsync(item.Id, WebhookEventStatus.Ignored,
+                                "Conta do Instagram não vinculada ao receber o evento.", stoppingToken);
+                            continue;
+                        }
+
+                        await processor.ProcessPayloadAsync(item.Payload, tenantId, accountId, stoppingToken);
+                        await repository.UpdateStatusAsync(item.Id, WebhookEventStatus.Processed, ct: stoppingToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Falha no processamento do webhook {Id}.", item.Id);
+                        await repository.UpdateStatusAsync(item.Id, WebhookEventStatus.Failed,
+                            "Falha no processamento. Verifique o inbox e o Instagram antes de reprocessar.");
+                    }
+
                     continue;
                 }
-
-                var payloadString = item.ToString();
-                using var doc = JsonDocument.Parse(payloadString);
-                var root = doc.RootElement;
-                var eventId = root.GetProperty("Id").GetGuid();
-                var innerPayload = root.GetProperty("Payload").GetString();
-
-                using var scope = _scopeFactory.CreateScope();
-                var webhookRepo = scope.ServiceProvider.GetRequiredService<IInstagramWebhookEventRepository>();
-                var processor = scope.ServiceProvider.GetRequiredService<InstagramWebhookProcessor>();
-
-                await webhookRepo.UpdateStatusAsync(eventId, WebhookEventStatus.Processing, null, stoppingToken);
-
-                // Executa pipeline automatizado: CRM + Inbox + IA + Instagram
-                if (!string.IsNullOrEmpty(innerPayload))
-                {
-                    await processor.ProcessPayloadAsync(innerPayload, stoppingToken);
-                }
-
-                await webhookRepo.UpdateStatusAsync(eventId, WebhookEventStatus.Processed, null, stoppingToken);
-                _logger.LogInformation("Evento do Webhook {EventId} processado com sucesso pelo pipeline de IA.", eventId);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erro ao processar item do Webhook na fila Redis.");
+                logger.LogError(ex, "Falha ao consultar eventos do Instagram.");
             }
+
+            await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
         }
     }
 }

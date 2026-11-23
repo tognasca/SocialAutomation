@@ -1,4 +1,4 @@
-﻿using SocialAutomation.Application.Common;
+using SocialAutomation.Application.Common;
 using SocialAutomation.Application.Common.Interfaces;
 using SocialAutomation.Application.Instagram.DTOs;
 using SocialAutomation.Domain.Enums;
@@ -12,15 +12,19 @@ public class InstagramMessageService
     private readonly IInstagramClient _instagramClient;
     private readonly IInstagramAccountRepository _instagramAccountRepository;
     private readonly ITenantContext _tenantContext;
+    private readonly IInboxRepository _inbox;
+    private readonly IDateTimeProvider _clock;
 
     public InstagramMessageService(
         IInstagramClient instagramClient,
         IInstagramAccountRepository instagramAccountRepository,
-        ITenantContext tenantContext)
+        ITenantContext tenantContext, IInboxRepository inbox, IDateTimeProvider clock)
     {
         _instagramClient = instagramClient;
         _instagramAccountRepository = instagramAccountRepository;
         _tenantContext = tenantContext;
+        _inbox = inbox;
+        _clock = clock;
     }
 
     public async Task<Result<SendInstagramMessageResponse>> SendDirectMessageAsync(
@@ -32,6 +36,10 @@ public class InstagramMessageService
         var account = await _instagramAccountRepository.GetByIdAsync(request.InstagramAccountId, _tenantContext.TenantId, ct);
         if (account == null || account.Status != InstagramAccountStatus.Active)
             return Result.Fail<SendInstagramMessageResponse>("Conta do Instagram não encontrada ou inativa.");
+
+        if (!await _inbox.HasRecentInstagramConversationAsync(_tenantContext.TenantId, account.Id,
+            request.RecipientInstagramScopedId, _clock.UtcNow.AddHours(-24), ct))
+            return Result.Fail<SendInstagramMessageResponse>("O destinatário precisa ter enviado uma mensagem nas últimas 24 horas.");
 
         var response = await _instagramClient.SendTextMessageAsync(
             account.PageId,

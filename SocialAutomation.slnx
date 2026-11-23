@@ -4,4 +4,6 @@
   <Project Path="src/SocialAutomation.Domain/SocialAutomation.Domain.csproj" />
   <Project Path="src/SocialAutomation.Infrastructure/SocialAutomation.Infrastructure.csproj" />
   <Project Path="src/SocialAutomation.Worker/SocialAutomation.Worker.csproj" />
+  <Project Path="tests/SocialAutomation.UnitTests/SocialAutomation.UnitTests.csproj" />
+  <Project Path="tests/SocialAutomation.IntegrationTests/SocialAutomation.IntegrationTests.csproj" />
 </Solution>

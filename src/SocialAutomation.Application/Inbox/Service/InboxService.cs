@@ -1,4 +1,4 @@
-﻿using SocialAutomation.Application.Common;
+using SocialAutomation.Application.Common;
 using SocialAutomation.Application.Common.Interfaces;
 using SocialAutomation.Application.Inbox.DTOs;
 using SocialAutomation.Application.Instagram.DTOs;
@@ -93,6 +93,8 @@ public class InboxService
 
         var lead = await _leadRepository.GetByIdAsync(conv.LeadId, _tenantContext.TenantId, ct);
 
+        string? instagramMessageId = null;
+
         // Dispara mensagem real no Instagram
         if (conv.InstagramAccountId.HasValue && lead?.InstagramUserId != null)
         {
@@ -104,6 +106,7 @@ public class InboxService
             }, ct);
 
             if (!igResult.Success) return Result.Fail<MessageDto>(igResult.Error!);
+            instagramMessageId = igResult.Data?.MessageId;
         }
 
         // Salva na nossa base
@@ -113,6 +116,7 @@ public class InboxService
             TenantId = _tenantContext.TenantId,
             ConversationId = conversationId,
             SenderType = "User",
+            InstagramMessageId = instagramMessageId,
             SenderId = _tenantContext.UserId,
             Content = request.Content.Trim(),
             CreatedAt = _dateTimeProvider.UtcNow

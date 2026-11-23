@@ -1,4 +1,4 @@
-﻿using SocialAutomation.Application.Common;
+using SocialAutomation.Application.Common;
 using SocialAutomation.Application.Common.Interfaces;
 using SocialAutomation.Application.Content.DTOs;
 using SocialAutomation.Domain.Entities;
@@ -12,15 +12,18 @@ public class ContentService
     private readonly IContentRepository _contentRepository;
     private readonly ITenantContext _tenantContext;
     private readonly IDateTimeProvider _dateTimeProvider;
+    private readonly IInstagramAccountRepository _accounts;
 
     public ContentService(
         IContentRepository contentRepository,
         ITenantContext tenantContext,
-        IDateTimeProvider dateTimeProvider)
+        IDateTimeProvider dateTimeProvider,
+        IInstagramAccountRepository accounts)
     {
         _contentRepository = contentRepository;
         _tenantContext = tenantContext;
         _dateTimeProvider = dateTimeProvider;
+        _accounts = accounts;
     }
 
     public async Task<Result<IEnumerable<ContentItemDto>>> GetAllAsync(string? type = null, string? status = null, CancellationToken ct = default)
@@ -41,6 +44,22 @@ public class ContentService
     {
         if (string.IsNullOrWhiteSpace(request.Title))
             return Result.Fail<Guid>("Título é obrigatório.");
+
+        if (request.ScheduledAt.HasValue)
+        {
+            if (request.Type is not (null or "Post" or "Story" or "Reel"))
+                return Result.Fail<Guid>("Selecione Post, Story ou Reel.");
+
+            if (request.MediaUrls.Count != 1 ||
+                !Uri.TryCreate(request.MediaUrls[0], UriKind.Absolute, out var media) ||
+                media.Scheme != Uri.UriSchemeHttps || !string.IsNullOrEmpty(media.UserInfo))
+                return Result.Fail<Guid>("Informe uma URL HTTPS pública para a mídia.");
+
+            if (request.InstagramAccountId is not Guid accountId ||
+                (await _accounts.GetByIdAsync(accountId, _tenantContext.TenantId, ct))?.Status
+                    != SocialAutomation.Domain.Enums.InstagramAccountStatus.Active)
+                return Result.Fail<Guid>("Selecione uma conta ativa do Instagram.");
+        }
 
         var status = request.ScheduledAt.HasValue ? "Agendado" : "Rascunho";
 
@@ -97,7 +116,8 @@ public class ContentService
         Cta = item.Cta,
         MediaUrls = item.MediaUrls?.ToList() ?? new List<string>(),
         MediaFormat = item.MediaFormat,
-        Status = item.Status,
+        Status = item.InstagramPublicationId?.StartsWith("ig_pub_", StringComparison.Ordinal) == true
+            ? "Simulado" : item.Status,
         ScheduledAt = item.ScheduledAt,
         PublishedAt = item.PublishedAt,
         ErrorMessage = item.ErrorMessage,

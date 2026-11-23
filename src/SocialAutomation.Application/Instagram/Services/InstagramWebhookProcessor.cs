@@ -1,4 +1,4 @@
-﻿
+
 using Microsoft.Extensions.Logging;
 using SocialAutomation.Application.AI.Services;
 using SocialAutomation.Domain.Entities;
@@ -39,7 +39,7 @@ public class InstagramWebhookProcessor
         _logger = logger;
     }
 
-    public async Task ProcessPayloadAsync(string payload, CancellationToken ct = default)
+    public async Task ProcessPayloadAsync(string payload, Guid tenantId, Guid instagramAccountId, CancellationToken ct = default)
     {
         using var doc = JsonDocument.Parse(payload);
         var root = doc.RootElement;
@@ -47,17 +47,9 @@ public class InstagramWebhookProcessor
         if (!root.TryGetProperty("messaging", out var messagingArray) || messagingArray.ValueKind != JsonValueKind.Array)
             return;
 
-        var entryId = root.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "";
-
-        // 1. Identifica a conta conectada
-        var account = await _accountRepository.GetByBusinessIdAsync(entryId, ct)
-                      ?? await _accountRepository.GetByPageIdAsync(entryId, ct);
-
-        if (account == null)
-        {
-            _logger.LogWarning("Nenhuma conta ativas do Instagram encontrada para o EntryId {EntryId}", entryId);
-            return;
-        }
+        var account = await _accountRepository.GetByIdAsync(instagramAccountId, tenantId, ct);
+        if (account?.Status != SocialAutomation.Domain.Enums.InstagramAccountStatus.Active)
+            throw new InvalidOperationException("Conta do Instagram inativa ou desvinculada.");
 
         foreach (var messaging in messagingArray.EnumerateArray())
         {
@@ -76,15 +68,19 @@ public class InstagramWebhookProcessor
             if (senderId == account.InstagramBusinessId || senderId == account.PageId)
                 continue;
 
-            // 2. Idempotência: Checa se mensagem já foi processada
-            if (!string.IsNullOrEmpty(messageId) && await _inboxRepository.MessageExistsByInstagramIdAsync(messageId, ct))
-            {
-                _logger.LogDebug("Mensagem duplicada ignorada: {MessageId}", messageId);
+            if (string.IsNullOrEmpty(messageId) || (messageEl.TryGetProperty("is_echo", out var echo) &&
+                echo.ValueKind == JsonValueKind.True))
                 continue;
-            }
+
+            var now = _dateTimeProvider.UtcNow;
+            var receivedAt = messaging.TryGetProperty("timestamp", out var stamp) &&
+                stamp.ValueKind == JsonValueKind.Number && stamp.TryGetInt64(out var ms) &&
+                ms >= 0 && ms <= new DateTimeOffset(now).ToUnixTimeMilliseconds()
+                    ? DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime
+                    : DateTime.UnixEpoch;
 
             // 3. Localiza ou Cria o Lead no CRM automaticamente
-            var lead = await _leadRepository.GetByInstagramUserIdAsync(senderId, account.TenantId, ct);
+            var lead = await _leadRepository.GetByInstagramUserIdAsync(senderId, account.TenantId, account.Id, ct);
             if (lead == null)
             {
                 // Busca perfil público na Meta API
@@ -130,13 +126,16 @@ public class InstagramWebhookProcessor
                     Status = "Aberto",
                     UnreadCount = 0,
                     LastMessagePreview = text.Length > 50 ? text[..47] + "..." : text,
-                    LastMessageAt = _dateTimeProvider.UtcNow,
+                    LastMessageAt = receivedAt,
                     CreatedAt = _dateTimeProvider.UtcNow,
                     UpdatedAt = _dateTimeProvider.UtcNow
                 };
 
                 await _inboxRepository.CreateConversationAsync(conversation, ct);
             }
+
+            if (conversation.InstagramAccountId != account.Id)
+                throw new InvalidOperationException("Conversa vinculada a outra conta do Instagram.");
 
             // 5. Salva a mensagem recebida no banco
             var incomingMsg = new Message
@@ -148,26 +147,34 @@ public class InstagramWebhookProcessor
                 InstagramMessageId = messageId,
                 Content = text,
                 Status = "Delivered",
-                CreatedAt = _dateTimeProvider.UtcNow
+                CreatedAt = receivedAt
             };
 
-            await _inboxRepository.CreateMessageAsync(incomingMsg, ct);
+            if (!await _inboxRepository.TryCreateInstagramMessageAsync(incomingMsg, account.Id, ct))
+                continue;
 
             // Atualiza preview da conversa no Inbox
-            conversation.LastMessagePreview = text.Length > 50 ? text[..47] + "..." : text;
-            conversation.LastMessageAt = incomingMsg.CreatedAt;
+            if (incomingMsg.CreatedAt >= conversation.LastMessageAt)
+            {
+                conversation.LastMessagePreview = text.Length > 50 ? text[..47] + "..." : text;
+                conversation.LastMessageAt = incomingMsg.CreatedAt;
+            }
             conversation.UnreadCount++;
             await _inboxRepository.UpdateConversationAsync(conversation, ct);
 
             // 6. Se a conversa estiver em modo IA_ATIVA -> Executa a IA e responde
-            if (string.Equals(conversation.Mode, "IA_ATIVA", StringComparison.OrdinalIgnoreCase))
+            if (receivedAt >= now.AddHours(-24) &&
+                string.Equals(conversation.Mode, "IA_ATIVA", StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogInformation("Processando mensagem com IA para a conversa {ConversationId}", conversation.Id);
 
                 var aiResult = await _aiConversationService.ProcessIncomingMessageAsync(
-                    account.TenantId, conversation.Id, text, ct);
+                    account.TenantId, conversation.Id, text, ct, saveReply: false);
 
-                if (aiResult.Success && !string.IsNullOrWhiteSpace(aiResult.Data))
+                if (!aiResult.Success)
+                    throw new InvalidOperationException("O agente de IA não conseguiu preparar a resposta.");
+
+                if (!string.IsNullOrWhiteSpace(aiResult.Data))
                 {
                     // Envia resposta no Instagram do cliente via Graph API Oficial
                     var sendResult = await _instagramClient.SendTextMessageAsync(
@@ -177,14 +184,20 @@ public class InstagramWebhookProcessor
                         aiResult.Data,
                         ct);
 
-                    if (sendResult != null && !string.IsNullOrEmpty(sendResult.MessageId))
+                    var sent = !string.IsNullOrEmpty(sendResult?.MessageId);
+                    await _inboxRepository.CreateMessageAsync(new Message
                     {
-                        _logger.LogInformation("Resposta da IA enviada com sucesso no Instagram! MessageId: {MessageId}", sendResult.MessageId);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("IA gerou resposta, mas houve falha ao enviar via Graph API Meta. Verifique janela de 24h.");
-                    }
+                        Id = Guid.NewGuid(),
+                        TenantId = account.TenantId,
+                        ConversationId = conversation.Id,
+                        SenderType = "AI",
+                        InstagramMessageId = sendResult?.MessageId,
+                        Content = aiResult.Data,
+                        Status = sent ? "Sent" : "Failed",
+                        CreatedAt = _dateTimeProvider.UtcNow
+                    }, ct);
+                    if (!sent)
+                        throw new InvalidOperationException("A Meta não confirmou o envio da resposta automática.");
                 }
             }
         }

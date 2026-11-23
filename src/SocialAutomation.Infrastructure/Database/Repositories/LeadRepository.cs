@@ -1,4 +1,4 @@
-﻿
+
 using Dapper;
 using SocialAutomation.Domain.Entities;
 using SocialAutomation.Domain.Interfaces.Repositories;
@@ -47,15 +47,16 @@ public class LeadRepository : ILeadRepository
         return lead;
     }
 
-    public async Task<Lead?> GetByInstagramUserIdAsync(string instagramUserId, Guid tenantId, CancellationToken ct = default)
+    public async Task<Lead?> GetByInstagramUserIdAsync(string instagramUserId, Guid tenantId, Guid accountId, CancellationToken ct = default)
     {
         using var connection = _connectionFactory.CreateConnection();
         return await connection.QueryFirstOrDefaultAsync<Lead>(
             @"SELECT id, tenant_id AS TenantId, name, instagram_username AS InstagramUsername,
                      instagram_user_id AS InstagramUserId, score, status, pipeline_stage AS PipelineStage
               FROM leads
-              WHERE instagram_user_id = @InstagramUserId AND tenant_id = @TenantId",
-            new { InstagramUserId = instagramUserId, TenantId = tenantId });
+              WHERE instagram_user_id = @InstagramUserId AND tenant_id = @TenantId AND instagram_account_id = @AccountId
+              ORDER BY created_at LIMIT 1",
+            new { InstagramUserId = instagramUserId, TenantId = tenantId, AccountId = accountId });
     }
 
     public async Task<Lead?> GetByInstagramUsernameAsync(string username, Guid tenantId, CancellationToken ct = default)

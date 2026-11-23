@@ -15,18 +15,10 @@ public class InstagramWebhookEventRepository : IInstagramWebhookEventRepository
         _connectionFactory = connectionFactory;
     }
 
-    public async Task<bool> ExistsAsync(string eventId, CancellationToken ct = default)
+    public async Task<bool> TryCreateAsync(InstagramWebhookEvent webhookEvent, CancellationToken ct = default)
     {
         using var connection = _connectionFactory.CreateConnection();
-        return await connection.QueryFirstOrDefaultAsync<bool>(
-            "SELECT EXISTS(SELECT 1 FROM instagram_webhook_events WHERE event_id = @EventId)",
-            new { EventId = eventId });
-    }
-
-    public async Task<Guid> CreateAsync(InstagramWebhookEvent webhookEvent, CancellationToken ct = default)
-    {
-        using var connection = _connectionFactory.CreateConnection();
-        await connection.ExecuteAsync(
+        return await connection.ExecuteAsync(new CommandDefinition(
             @"INSERT INTO instagram_webhook_events (
                 id, tenant_id, instagram_account_id, event_id, object_type,
                 entry_id, event_type, payload, status, error_message, processed_at, created_at
@@ -34,7 +26,7 @@ public class InstagramWebhookEventRepository : IInstagramWebhookEventRepository
             VALUES (
                 @Id, @TenantId, @InstagramAccountId, @EventId, @ObjectType,
                 @EntryId, @EventType, @Payload::jsonb, @Status, @ErrorMessage, @ProcessedAt, @CreatedAt
-            )",
+            ) ON CONFLICT (event_id) DO NOTHING",
             new
             {
                 webhookEvent.Id,
@@ -49,9 +41,7 @@ public class InstagramWebhookEventRepository : IInstagramWebhookEventRepository
                 webhookEvent.ErrorMessage,
                 webhookEvent.ProcessedAt,
                 webhookEvent.CreatedAt
-            });
-
-        return webhookEvent.Id;
+            }, cancellationToken: ct)) == 1;
     }
 
     public async Task UpdateStatusAsync(Guid id, WebhookEventStatus status, string? errorMessage = null, CancellationToken ct = default)
@@ -66,18 +56,25 @@ public class InstagramWebhookEventRepository : IInstagramWebhookEventRepository
             new { Id = id, Status = (short)status, ErrorMessage = errorMessage });
     }
 
-    public async Task<IEnumerable<InstagramWebhookEvent>> GetPendingEventsAsync(int limit = 50, CancellationToken ct = default)
+    public async Task<InstagramWebhookEvent?> ClaimNextAsync(CancellationToken ct = default)
     {
         using var connection = _connectionFactory.CreateConnection();
-        return await connection.QueryAsync<InstagramWebhookEvent>(
-            @"SELECT id, tenant_id AS TenantId, instagram_account_id AS InstagramAccountId,
-                     event_id AS EventId, object_type AS ObjectType, entry_id AS EntryId,
-                     event_type AS EventType, payload, status, error_message AS ErrorMessage,
-                     processed_at AS ProcessedAt, created_at AS CreatedAt
-              FROM instagram_webhook_events
-              WHERE status = 1
-              ORDER BY created_at ASC
-              LIMIT @Limit",
-            new { Limit = limit });
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE instagram_webhook_events
+            SET status = 4, processed_at = NOW(), error_message = 'Processamento interrompido. Confira o inbox e o Instagram.'
+            WHERE status = 2 AND processing_started_at < NOW() - INTERVAL '1 hour'
+            """, cancellationToken: ct));
+        return await connection.QuerySingleOrDefaultAsync<InstagramWebhookEvent>(new CommandDefinition(
+            """
+            UPDATE instagram_webhook_events
+            SET status = 2, processing_started_at = NOW()
+            WHERE id = (
+                SELECT id FROM instagram_webhook_events
+                WHERE status = 1 ORDER BY created_at
+                LIMIT 1 FOR UPDATE SKIP LOCKED
+            )
+            RETURNING id, payload, tenant_id AS TenantId, instagram_account_id AS InstagramAccountId
+            """, cancellationToken: ct));
     }
 }

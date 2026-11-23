@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SocialAutomation.Api.Filters;
 using SocialAutomation.Application.Content.DTOs;
@@ -42,6 +42,9 @@ public class ContentController : ControllerBase
     [RequirePermission("content.create")]
     public async Task<IActionResult> Create([FromBody] CreateContentItemRequest request, CancellationToken ct)
     {
+        if (request.ScheduledAt.HasValue && !User.IsInRole("SuperAdmin") && !User.HasClaim("permission", "content.publish"))
+            return Forbid();
+
         var result = await _contentService.CreateAsync(request, ct);
         if (!result.Success) return BadRequest(new { success = false, error = result.Error });
 

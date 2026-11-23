@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using SocialAutomation.Application.Common;
 using SocialAutomation.Application.Common.Interfaces;
 using SocialAutomation.Application.Instagram.DTOs;
@@ -42,7 +42,7 @@ public class InstagramAccountService
         var tenantId = _tenantContext.TenantId;
         var state = $"{tenantId}:{Guid.NewGuid():N}";
 
-        await _cacheService.SetAsync($"oauth_state:{state}", tenantId.ToString(), TimeSpan.FromMinutes(10), ct);
+        await _cacheService.SetAsync($"oauth_state:{state}", redirectUri, TimeSpan.FromMinutes(10), ct);
 
         var url = _instagramClient.GetAuthorizationUrl(state, redirectUri);
         return Result.Ok(new InstagramOAuthUrlResponse { AuthorizationUrl = url, State = state });
@@ -51,8 +51,9 @@ public class InstagramAccountService
     public async Task<Result<List<InstagramAccountResponse>>> HandleOAuthCallbackAsync(
         ConnectInstagramCallbackRequest request, CancellationToken ct = default)
     {
-        var savedTenantId = await _cacheService.GetAsync<string>($"oauth_state:{request.State}", ct);
-        if (string.IsNullOrEmpty(savedTenantId) || Guid.Parse(savedTenantId) != _tenantContext.TenantId)
+        var savedRedirect = await _cacheService.GetAsync<string>($"oauth_state:{request.State}", ct);
+        if (request.State?.StartsWith($"{_tenantContext.TenantId}:", StringComparison.Ordinal) != true ||
+            string.IsNullOrEmpty(savedRedirect) || savedRedirect != request.RedirectUri)
         {
             return Result.Fail<List<InstagramAccountResponse>>("Sessão ou estado OAuth inválido ou expirado.");
         }
@@ -63,10 +64,8 @@ public class InstagramAccountService
             return Result.Fail<List<InstagramAccountResponse>>("Tenant não encontrado.");
 
         var currentCount = await _instagramAccountRepository.CountByTenantAsync(_tenantContext.TenantId, ct);
-        if (currentCount >= tenant.MaxInstagramAccounts)
-        {
-            return Result.Fail<List<InstagramAccountResponse>>($"Limite de {tenant.MaxInstagramAccounts} conta(s) do Instagram atingido para o seu plano.");
-        }
+        var existing = (await _instagramAccountRepository.GetAllByTenantAsync(tenant.Id, ct))
+            .ToDictionary(account => account.InstagramBusinessId);
 
         var tokenResponse = await _instagramClient.ExchangeCodeForTokenAsync(request.Code, request.RedirectUri, ct);
         if (tokenResponse == null || string.IsNullOrEmpty(tokenResponse.AccessToken))
@@ -82,13 +81,18 @@ public class InstagramAccountService
 
         foreach (var page in pages)
         {
-            if (page.InstagramBusinessAccount == null)
+            if (page.InstagramBusinessAccount == null || string.IsNullOrWhiteSpace(page.AccessToken))
             {
                 _logger.LogInformation("Page {PageName} ({PageId}) does not have an Instagram Business account connected.", page.Name, page.Id);
                 continue;
             }
 
             var igAccount = page.InstagramBusinessAccount;
+            var isActive = existing.TryGetValue(igAccount.Id, out var previous) &&
+                previous.Status == InstagramAccountStatus.Active;
+            if (!isActive && currentCount >= tenant.MaxInstagramAccounts)
+                continue;
+
             var subscribed = await _instagramClient.SubscribeAppToPageWebhooksAsync(page.Id, page.AccessToken, ct);
 
             var account = new InstagramAccount
@@ -102,16 +106,20 @@ public class InstagramAccountService
                 Name = igAccount.Name ?? page.Name,
                 ProfilePictureUrl = igAccount.ProfilePictureUrl,
                 AccessToken = page.AccessToken,
-                TokenExpiresAt = _dateTimeProvider.UtcNow.AddDays(60),
+                UserAccessToken = userAccessToken,
+                TokenExpiresAt = (longLivedTokenResponse?.ExpiresIn ?? tokenResponse.ExpiresIn) is int expiresIn
+                    ? _dateTimeProvider.UtcNow.AddSeconds(expiresIn) : null,
                 Status = InstagramAccountStatus.Active,
                 WebhookSubscribed = subscribed,
                 Scopes = new[] { 
-                "instagram_business_basic","instagram_business_content_publish","instagram_business_manage_comments","instagram_business_manage_messages" },
+                "instagram_basic", "instagram_content_publish", "instagram_manage_comments", "instagram_manage_messages" },
                 CreatedAt = _dateTimeProvider.UtcNow,
                 UpdatedAt = _dateTimeProvider.UtcNow
             };
 
-            await _instagramAccountRepository.CreateOrUpdateAsync(account, ct);
+            account.Id = await _instagramAccountRepository.CreateOrUpdateAsync(account, ct);
+            if (!isActive)
+                currentCount++;
 
             connectedAccounts.Add(new InstagramAccountResponse
             {
