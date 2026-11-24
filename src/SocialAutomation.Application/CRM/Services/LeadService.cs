@@ -1,4 +1,4 @@
-﻿// src/SocialAutomation.Application/CRM/Services/LeadService.cs
+// src/SocialAutomation.Application/CRM/Services/LeadService.cs
 
 using SocialAutomation.Application.Common;
 using SocialAutomation.Application.Common.Interfaces;
@@ -61,6 +61,19 @@ public class LeadService
             return Result.Fail<LeadResponse>("Lead não encontrado.");
 
         return Result.Ok(MapToResponse(lead));
+    }
+
+    public async Task<Result<Guid>> SaveInstagramProspectAsync(string username, string? name, CancellationToken ct)
+    {
+        username = username.Trim().TrimStart('@').ToLowerInvariant();
+        if (!System.Text.RegularExpressions.Regex.IsMatch(username, @"^[a-z0-9_.]{1,30}$"))
+            return Result.Fail<Guid>("Informe um usuário válido do Instagram.");
+
+        var displayName = string.IsNullOrWhiteSpace(name) ? $"@{username}" : name.Trim();
+        if (displayName.Length > 255)
+            return Result.Fail<Guid>("O nome pode ter até 255 caracteres.");
+
+        return Result.Ok(await _leadRepository.SaveInstagramProspectAsync(_tenantContext.TenantId, username, displayName, ct));
     }
 
     public async Task<Result<Guid>> CreateAsync(CreateLeadRequest request, CancellationToken ct = default)

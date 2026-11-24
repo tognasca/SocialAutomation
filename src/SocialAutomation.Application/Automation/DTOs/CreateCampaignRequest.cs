@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -7,6 +7,8 @@ namespace SocialAutomation.Application.Automation.DTOs
     public class CreateCampaignRequest
     {
         public Guid? InstagramAccountId { get; set; }
+        public string? InstagramMediaId { get; set; }
+        public string? CommentKeyword { get; set; }
         public string Name { get; set; } = string.Empty;
         public string MessageTemplate { get; set; } = string.Empty;
         public List<Guid> TagIds { get; set; } = new();

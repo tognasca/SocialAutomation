@@ -1,4 +1,4 @@
-﻿
+
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SocialAutomation.Api.Filters;
@@ -44,6 +44,17 @@ public class LeadsController : ControllerBase
 
         return Ok(new { success = true, data = result.Data });
     }
+
+    [HttpPost("instagram-prospect")]
+    [RequirePermission("leads.create")]
+    public async Task<IActionResult> SaveInstagramProspect([FromBody] InstagramProspectRequest request, CancellationToken ct)
+    {
+        var result = await _leadService.SaveInstagramProspectAsync(request.Username, request.Name, ct);
+        return result.Success ? Ok(new { success = true, data = new { id = result.Data } }) :
+            BadRequest(new { success = false, error = result.Error });
+    }
+
+    public sealed record InstagramProspectRequest(string Username, string? Name);
 
     [HttpPost]
     [RequirePermission("leads.create")]

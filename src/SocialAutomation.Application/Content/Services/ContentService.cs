@@ -109,6 +109,7 @@ public class ContentService
     {
         Id = item.Id,
         InstagramAccountId = item.InstagramAccountId,
+        InstagramPublicationId = item.InstagramPublicationId,
         Type = item.Type,
         Title = item.Title,
         Caption = item.Caption,

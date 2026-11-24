@@ -105,6 +105,30 @@ public sealed class InstagramPostgresTests
             Assert.Single(messages, value => value);
             Assert.True(await inbox.HasRecentInstagramConversationAsync(tenantId, accountId, "recipient", DateTime.UtcNow.AddHours(-24), default));
             Assert.False(await inbox.HasRecentInstagramConversationAsync(tenantId, accountId, "another-recipient", DateTime.UtcNow.AddHours(-24), default));
+            var prospects = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ =>
+                new LeadRepository(factory).SaveInstagramProspectAsync(tenantId, "revenda_teste", "Revenda Teste", default)));
+            Assert.Single(prospects.Distinct());
+
+            var campaigns = new CampaignRepository(factory);
+            var campaign = new Campaign
+            {
+                Id = Guid.NewGuid(), TenantId = tenantId, InstagramAccountId = accountId,
+                Name = "Demonstração", InstagramMediaId = "12345", CommentKeyword = "demo",
+                MessageTemplate = "Quer agendar uma demonstração?", Status = "Ativa",
+                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+            };
+            await campaigns.CreateAsync(campaign);
+            Assert.Empty(await campaigns.GetActiveCommentCampaignsAsync(Guid.NewGuid(), accountId, "12345", default));
+            Assert.Equal(campaign.Id, Assert.Single(await campaigns.GetActiveCommentCampaignsAsync(tenantId, accountId, "12345", default)).Id);
+            var commentClaims = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => campaigns.TryClaimCommentAsync(campaign, "comment", default)));
+            Assert.Single(commentClaims, claimed => claimed);
+            await campaigns.FinishCommentAsync(accountId, "comment", "outgoing-mid", "recipient", default);
+            Assert.True(await campaigns.RecordCommentCampaignResponseAsync(accountId, "recipient", "outgoing-mid", leadId, DateTime.UtcNow, default));
+            Assert.False(await campaigns.RecordCommentCampaignResponseAsync(accountId, "recipient", "outgoing-mid", leadId, DateTime.UtcNow, default));
+            var measured = await campaigns.GetByIdAsync(campaign.Id, tenantId);
+            Assert.Equal(1, measured!.SentCount);
+            Assert.Equal(1, measured.ReplyCount);
+
         }
         finally
         {

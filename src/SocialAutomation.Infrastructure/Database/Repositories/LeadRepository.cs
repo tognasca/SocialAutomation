@@ -59,6 +59,29 @@ public class LeadRepository : ILeadRepository
             new { InstagramUserId = instagramUserId, TenantId = tenantId, AccountId = accountId });
     }
 
+    public async Task<Guid> SaveInstagramProspectAsync(Guid tenantId, string username, string name, CancellationToken ct)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+        await connection.ExecuteAsync(new CommandDefinition(
+            "SELECT pg_advisory_xact_lock(hashtextextended(@Key, 0))",
+            new { Key = $"instagram-prospect:{tenantId}:{username}" }, transaction, cancellationToken: ct));
+
+        var id = await connection.QueryFirstOrDefaultAsync<Guid?>(new CommandDefinition(
+            """
+            SELECT id FROM leads WHERE tenant_id = @TenantId AND lower(instagram_username) = @Username
+            ORDER BY created_at, id LIMIT 1
+            """, new { tenantId, username }, transaction, cancellationToken: ct));
+        id ??= await connection.QuerySingleAsync<Guid>(new CommandDefinition(
+            """
+            INSERT INTO leads (tenant_id, instagram_username, name, source)
+            VALUES (@TenantId, @Username, @Name, 'instagram_prospeccao') RETURNING id
+            """, new { tenantId, username, name }, transaction, cancellationToken: ct));
+        transaction.Commit();
+        return id.Value;
+    }
+
     public async Task<Lead?> GetByInstagramUsernameAsync(string username, Guid tenantId, CancellationToken ct = default)
     {
         using var connection = _connectionFactory.CreateConnection();

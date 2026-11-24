@@ -27,9 +27,27 @@ export default function InstagramAccountsPage() {
   const [searchMessage, setSearchMessage] = useState('')
   const [results, setResults] = useState<SearchProfile | SearchPost[] | null>(null)
 
+  const [savedLeadId, setSavedLeadId] = useState('')
+  const [savingLead, setSavingLead] = useState(false)
+
+  async function saveProspect(profile: SearchProfile) {
+    setSavingLead(true)
+    setSearchMessage('')
+    try {
+      const response = await api.post('/api/leads/instagram-prospect', { username: profile.username, name: profile.name })
+      setSavedLeadId(response.data.data.id)
+      setSearchMessage('Perfil salvo no CRM.')
+    } catch (err) {
+      setSearchMessage(isAxiosError(err) ? err.response?.data?.error ?? 'Erro ao salvar o perfil.' : 'Erro ao salvar o perfil.')
+    } finally {
+      setSavingLead(false)
+    }
+  }
+
   async function search(event: React.FormEvent) {
     event.preventDefault()
     setSearching(true)
+    setSavedLeadId('')
     setResults(null)
     setSearchMessage('')
     try {
@@ -133,7 +151,7 @@ export default function InstagramAccountsPage() {
             <label>{hashtag ? 'Hashtag' : 'Usuário'}
               <Input value={query} required maxLength={101} onChange={e => setQuery(e.target.value)} />
             </label>
-            <Button className="self-end" disabled={searching || !searchAccount}>{searching ? 'Pesquisando…' : 'Pesquisar'}</Button>
+            <Button className="self-end" disabled={searching || savingLead || !searchAccount}>{searching ? 'Pesquisando…' : 'Pesquisar'}</Button>
           </form>
           {searchMessage && <p role="status" className="text-sm">{searchMessage}</p>}
           {Array.isArray(results) ? (
@@ -152,6 +170,14 @@ export default function InstagramAccountsPage() {
               <p className="font-semibold">@{results.username} {results.name}</p>
               <p>{results.biography}</p>
               <p className="text-sm text-muted-foreground">{results.followers_count ?? 0} seguidores · {results.media_count ?? 0} publicações</p>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <Button type="button" size="sm" onClick={() => saveProspect(results)} disabled={savingLead || !!savedLeadId}>
+                  {savedLeadId ? 'Salvo no CRM' : 'Salvar como lead'}
+                </Button>
+                {savedLeadId && <a className="text-sm underline" href={`/crm/leads/${savedLeadId}`}>Abrir no CRM</a>}
+                <a className="text-sm underline" href={`https://www.instagram.com/${encodeURIComponent(results.username)}/`}
+                  target="_blank" rel="noreferrer">Abrir perfil para contato manual</a>
+              </div>
             </div>
           )}
         </CardContent>

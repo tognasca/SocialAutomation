@@ -96,6 +96,19 @@ public sealed class InstagramGraphTests
         Assert.Equal("RESPONSE", json.RootElement.GetProperty("messaging_type").GetString());
     }
 
+    [Fact]
+    public async Task PrivateReplyUsesCommentIdAndPageCredential()
+    {
+        var graph = new GraphHandler("""{"message_id":"campaign-mid","recipient_id":"scoped-id"}""");
+        var result = await CreateClient(graph).SendPrivateReplyAsync("page-id", "test-token", "comment-id", "Quer agendar?", default);
+
+        Assert.Equal("campaign-mid", result?.MessageId);
+        Assert.Equal("/v21.0/page-id/messages", graph.Requests[0].Path);
+        Assert.Empty(graph.Requests[0].Query);
+        using var json = System.Text.Json.JsonDocument.Parse(graph.Requests[0].Body);
+        Assert.Equal("comment-id", json.RootElement.GetProperty("recipient").GetProperty("comment_id").GetString());
+    }
+
     private static InstagramClient CreateClient(GraphHandler graph) => new(new HttpClient(graph),
         new ConfigurationBuilder().Build(), NullLogger<InstagramClient>.Instance, new IntegrationLogs());
 

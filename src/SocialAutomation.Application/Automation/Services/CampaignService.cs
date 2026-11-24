@@ -1,4 +1,4 @@
-﻿using SocialAutomation.Application.Automation.DTOs;
+using SocialAutomation.Application.Automation.DTOs;
 using SocialAutomation.Application.Common;
 using SocialAutomation.Application.Common.Interfaces;
 using SocialAutomation.Domain.Entities;
@@ -11,18 +11,20 @@ namespace SocialAutomation.Application.Automation.Services;
 public class CampaignService
 {
     private readonly ICampaignRepository _campaignRepository;
+    private readonly IInstagramAccountRepository _accounts;
     private readonly ILeadRepository _leadRepository;
     private readonly ITenantContext _tenantContext;
     private readonly IDateTimeProvider _dateTimeProvider;
 
     public CampaignService(
         ICampaignRepository campaignRepository,
-        ILeadRepository leadRepository,
+        ILeadRepository leadRepository, IInstagramAccountRepository accounts,
         ITenantContext tenantContext,
         IDateTimeProvider dateTimeProvider)
     {
         _campaignRepository = campaignRepository;
         _leadRepository = leadRepository;
+        _accounts = accounts;
         _tenantContext = tenantContext;
         _dateTimeProvider = dateTimeProvider;
     }
@@ -34,10 +36,13 @@ public class CampaignService
         {
             Id = c.Id,
             Name = c.Name,
+            InstagramMediaId = c.InstagramMediaId,
+            CommentKeyword = c.CommentKeyword,
             MessageTemplate = c.MessageTemplate,
             Status = c.Status,
             TotalAudience = c.TotalAudience,
             SentCount = c.SentCount,
+            ReplyCount = c.ReplyCount,
             FailedCount = c.FailedCount,
             CreatedAt = c.CreatedAt
         }));
@@ -47,6 +52,9 @@ public class CampaignService
     {
         if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.MessageTemplate))
             return Result.Fail<Guid>("Nome e mensagem da campanha são obrigatórios.");
+
+        if (!string.IsNullOrWhiteSpace(request.InstagramMediaId) || !string.IsNullOrWhiteSpace(request.CommentKeyword))
+            return await CreateCommentCampaignAsync(request, ct);
 
         var (leads, total) = await _leadRepository.GetPagedAsync(_tenantContext.TenantId, 1, 1000, null, request.StatusFilter, null, request.TagIds.FirstOrDefault(), null, ct);
 
@@ -77,6 +85,55 @@ public class CampaignService
         });
 
         await _campaignRepository.CreateRecipientsAsync(recipients, ct);
+        return Result.Ok(campaign.Id);
+    }
+
+    public async Task<Result> SetCommentCampaignEnabledAsync(Guid id, bool enabled, CancellationToken ct)
+    {
+        var tenantId = _tenantContext.TenantId;
+        var campaign = await _campaignRepository.GetByIdAsync(id, tenantId, ct);
+        if (campaign?.InstagramMediaId is null)
+            return Result.Fail("Campanha de comentários não encontrada.");
+
+        if (enabled)
+        {
+            var account = campaign.InstagramAccountId is Guid accountId ? await _accounts.GetByIdAsync(accountId, tenantId, ct) : null;
+            if (account?.Status != SocialAutomation.Domain.Enums.InstagramAccountStatus.Active)
+                return Result.Fail("Conecte a conta do Instagram antes de ativar.");
+
+            var active = await _campaignRepository.GetActiveCommentCampaignsAsync(tenantId, account.Id, campaign.InstagramMediaId, ct);
+            if (active.Any(c => c.Id != id && c.CommentKeyword == campaign.CommentKeyword))
+                return Result.Fail("Já há uma campanha ativa com essa palavra-chave na publicação.");
+        }
+        await _campaignRepository.UpdateStatusAsync(id, tenantId, enabled ? "Ativa" : "Pausada", ct);
+        return Result.Ok();
+    }
+
+    private async Task<Result<Guid>> CreateCommentCampaignAsync(CreateCampaignRequest request, CancellationToken ct)
+    {
+        var mediaId = request.InstagramMediaId?.Trim() ?? "";
+        var keyword = request.CommentKeyword?.Trim().Normalize().ToLowerInvariant() ?? "";
+        if (!System.Text.RegularExpressions.Regex.IsMatch(mediaId, @"^[0-9]{1,40}$") ||
+            !System.Text.RegularExpressions.Regex.IsMatch(keyword, @"^[\p{L}\p{M}\p{N}]{1,50}$"))
+            return Result.Fail<Guid>("Informe o ID numérico da publicação e uma palavra-chave de até 50 caracteres.");
+
+        if (request.Name.Trim().Length > 255 || request.MessageTemplate.Trim().Length > 1000)
+            return Result.Fail<Guid>("Use até 255 caracteres no nome e 1.000 na mensagem.");
+
+        var tenantId = _tenantContext.TenantId;
+        var account = request.InstagramAccountId is Guid accountId ? await _accounts.GetByIdAsync(accountId, tenantId, ct) : null;
+        if (account?.Status != SocialAutomation.Domain.Enums.InstagramAccountStatus.Active)
+            return Result.Fail<Guid>("Selecione uma conta do Instagram ativa da sua empresa.");
+
+        var now = _dateTimeProvider.UtcNow;
+        var campaign = new Campaign
+        {
+            Id = Guid.NewGuid(), TenantId = tenantId, InstagramAccountId = account.Id,
+            Name = request.Name.Trim(), MessageTemplate = request.MessageTemplate.Trim(),
+            InstagramMediaId = mediaId, CommentKeyword = keyword, Status = "Pausada",
+            CreatedAt = now, UpdatedAt = now
+        };
+        await _campaignRepository.CreateAsync(campaign, ct);
         return Result.Ok(campaign.Id);
     }
 }

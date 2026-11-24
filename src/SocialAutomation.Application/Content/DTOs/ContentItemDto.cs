@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -8,6 +8,7 @@ namespace SocialAutomation.Application.Content.DTOs
     {
         public Guid Id { get; set; }
         public Guid? InstagramAccountId { get; set; }
+        public string? InstagramPublicationId { get; set; }
         public string Type { get; set; } = string.Empty; // Post, Story, Reel
         public string Title { get; set; } = string.Empty;
         public string? Caption { get; set; }

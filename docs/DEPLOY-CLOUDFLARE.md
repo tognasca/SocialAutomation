@@ -58,3 +58,12 @@ Esperado: status 204 e Access-Control-Allow-Origin com a origem enviada. Se o te
 **Segurança:** troque as credenciais de desenvolvimento e revogue quaisquer tokens publicados no histórico do Git. Retirar o token do commit mais recente não o apaga de commits anteriores.
 
 Na homologação, confira a saída das migrations no log da API e valide o fluxo com uma conta de teste da Meta.
+
+## Campanhas de comentário para Direct
+
+1. No app da Meta, assine o campo `comments` do objeto Instagram no mesmo webhook que já recebe DMs. Confirme que a conta profissional e a Página conectada concederam as permissões exigidas para comentários e mensagens. O app precisa estar autorizado para a conta usada no teste.
+2. Em **Automação → Campanhas**, selecione a conta e uma publicação própria, preencha a palavra-chave e a mensagem. Use um convite para responder e avançar com a demonstração. A campanha é criada pausada. Ative-a quando quiser começar a receber comentários novos.
+3. Com outra conta, comente a palavra-chave em um post próprio e confira a mensagem privada no Instagram. Teste o webhook com o mesmo ID de comentário duas vezes e confirme que existe apenas um envio. Verifique o contador na campanha.
+4. Responda à mensagem privada para abrir a conversa no Inbox e criar ou localizar o lead. Os contadores registram envios confirmados, respostas atribuídas e falhas. A conversa usa o agente e o CRM existentes da empresa.
+
+Resultados da busca de perfis podem ser salvos no CRM. O link para o perfil permite abordagem manual. Para ofertas e fechamento use o histórico, as etapas e as tarefas do CRM. A implementação não faz disparos para perfis encontrados na pesquisa.

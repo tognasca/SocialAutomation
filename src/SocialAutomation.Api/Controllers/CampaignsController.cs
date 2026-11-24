@@ -1,4 +1,4 @@
-﻿
+
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SocialAutomation.Api.Filters;
@@ -35,5 +35,13 @@ public class CampaignsController : ControllerBase
         if (!result.Success) return BadRequest(new { success = false, error = result.Error });
 
         return Ok(new { success = true, data = new { id = result.Data } });
+    }
+
+    [HttpPut("{id:guid}/comment-status")]
+    [RequirePermission("campaigns.execute")]
+    public async Task<IActionResult> SetCommentStatus(Guid id, [FromQuery] bool enabled, CancellationToken ct)
+    {
+        var result = await _campaignService.SetCommentCampaignEnabledAsync(id, enabled, ct);
+        return result.Success ? Ok(new { success = true }) : BadRequest(new { success = false, error = result.Error });
     }
 }

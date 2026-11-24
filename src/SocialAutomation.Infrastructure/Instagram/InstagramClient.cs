@@ -120,6 +120,15 @@ public class InstagramClient : IInstagramClient
         return await ExecuteWithLoggingAsync<MetaSendMessageResponse>(HttpMethod.Post, url, "SendTextMessage", jsonContent, null, ct, pageAccessToken);
     }
 
+    public Task<MetaSendMessageResponse?> SendPrivateReplyAsync(
+        string pageId, string pageAccessToken, string commentId, string text, CancellationToken ct)
+    {
+        var url = $"{GraphApiBaseUrl}/{GraphApiVersion}/{pageId}/messages";
+        var payload = JsonSerializer.Serialize(new { recipient = new { comment_id = commentId }, message = new { text } });
+        return ExecuteWithLoggingAsync<MetaSendMessageResponse>(
+            HttpMethod.Post, url, "SendPrivateReply", payload, null, ct, pageAccessToken);
+    }
+
     public async Task<MetaUserProfileResponse?> GetInstagramUserProfileAsync(
         string instagramScopedId,
         string pageAccessToken,

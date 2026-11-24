@@ -1,4 +1,4 @@
-﻿using SocialAutomation.Domain.Entities;
+using SocialAutomation.Domain.Entities;
 
 namespace SocialAutomation.Domain.Interfaces.Repositories;
 
@@ -24,6 +24,10 @@ public interface IAutomationRepository
 
 public interface ICampaignRepository
 {
+    Task<IEnumerable<Campaign>> GetActiveCommentCampaignsAsync(Guid tenantId, Guid accountId, string mediaId, CancellationToken ct);
+    Task<bool> TryClaimCommentAsync(Campaign campaign, string commentId, CancellationToken ct);
+    Task FinishCommentAsync(Guid accountId, string commentId, string? sentMessageId, string? recipientId, CancellationToken ct);
+    Task<bool> RecordCommentCampaignResponseAsync(Guid accountId, string recipientId, string? repliedMessageId, Guid leadId, DateTime receivedAt, CancellationToken ct);
     Task<IEnumerable<Campaign>> GetAllByTenantAsync(Guid tenantId, CancellationToken ct = default);
     Task<Campaign?> GetByIdAsync(Guid id, Guid tenantId, CancellationToken ct = default);
     Task<Guid> CreateAsync(Campaign campaign, CancellationToken ct = default);
