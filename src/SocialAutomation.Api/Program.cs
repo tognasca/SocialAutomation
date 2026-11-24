@@ -3,6 +3,7 @@ using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using System.Threading.RateLimiting;
 using Serilog;
 using SocialAutomation.Api.Middlewares;
 using SocialAutomation.Application.Auth.Services;
@@ -18,6 +19,13 @@ using SocialAutomation.Infrastructure.Database;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("PublicCampaignCapture", context =>
+        RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 240, Window = TimeSpan.FromMinutes(1) }));
+});
 
 // ==========================================================
 // 1. SERILOG
@@ -388,6 +396,7 @@ app.UseRouting();
 
 // CORS antes da autenticacao
 app.UseCors(CorsPolicy);
+app.UseRateLimiter();
 
 // Autenticacao e autorizacao
 app.UseAuthentication();

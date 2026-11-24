@@ -89,3 +89,11 @@ Em **Automação → Campanhas**, selecione **Usar modelo de diagnóstico de est
 Para homologar com outra conta do Instagram, comente `ESTOQUE`, responda `QUERO` ao Direct e responda às duas perguntas. Confira o checklist na conversa e as respostas no CRM. Envie `DEMO` para consultar horários, escolha `AGENDAR <código>` e valide a reserva. Se houver planos cadastrados, envie `PROPOSTA` após a reserva e confirme que a aceitação aparece no funil. A conversa precisa estar em **IA ativa** para avançar automaticamente.
 
 A API aplica a migration `022_campaign_capture.sql` na inicialização. Atualize API, worker e frontend para disponibilizar a campanha.
+
+### Página pública de captura
+
+Depois de atualizar a API, o worker e o frontend, abra uma campanha com material em **Automação → Campanhas → Página pública de captura**. Personalize a oferta e clique em **Publicar página**. A página tem publicação própria e pode ser despublicada pelo painel. **Configurar qualificação e agenda** controla as perguntas e as vagas compartilhadas com o Direct.
+
+Selecione a origem antes de copiar o link para cada canal. O painel usa a primeira origem registrada na sessão do visitante. O visitante recebe o checklist sem informar contato. Para solicitar retorno e reservar uma demonstração, ele informa e-mail ou WhatsApp e autoriza o contato. O CRM registra as respostas, a origem e o agendamento. Se a campanha tiver planos cadastrados, após a reserva o visitante pode consultar e aceitar sua proposta.
+
+A API aplica a migration `023_public_campaign_capture.sql` na inicialização. Para homologar, abra um link de Stories em uma sessão anônima, complete o diagnóstico, autorize um contato de teste e reserve uma vaga. Confira a atividade e a tarefa no CRM, e atualize o funil por origem para conferir a visita, o diagnóstico, a demonstração e o aceite.

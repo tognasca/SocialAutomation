@@ -47,6 +47,33 @@ public class CampaignsController : ControllerBase
         return result.Success ? Ok(new { success = true }) : BadRequest(new { success = false, error = result.Error });
     }
 
+    [HttpPut("{id:guid}/public-capture")]
+    [RequirePermission("campaigns.execute")]
+    public async Task<IActionResult> SetPublicCapture(Guid id, [FromBody] PublicCaptureRequest request,
+        [FromServices] ITenantContext tenant, [FromServices] ICampaignRepository campaigns, CancellationToken ct)
+    {
+        var title = request.Title?.Trim();
+        var intro = request.Intro?.Trim();
+        if (request.Enabled && (title is not { Length: >= 1 and <= 160 } || intro is not { Length: >= 1 and <= 800 }))
+            return BadRequest(new { error = "Preencha o título e a descrição da página." });
+
+        return await campaigns.SetPublicCaptureAsync(tenant.TenantId, id, request.Enabled,
+            request.Enabled ? title : null, request.Enabled ? intro : null, ct)
+            ? Ok(new { success = true })
+            : BadRequest(new { error = "A campanha precisa de perguntas e material para publicar a página." });
+    }
+
+    public sealed record PublicCaptureRequest(bool Enabled, string? Title, string? Intro);
+
+    [HttpGet("{id:guid}/public-capture/metrics")]
+    [RequirePermission("campaigns.read")]
+    public async Task<IActionResult> GetWebMetrics(Guid id, [FromServices] ITenantContext tenant,
+        [FromServices] ICampaignRepository campaigns, CancellationToken ct)
+    {
+        var metrics = await campaigns.GetWebMetricsAsync(tenant.TenantId, id, ct);
+        return metrics is null ? NotFound() : Ok(new { data = metrics });
+    }
+
     [HttpGet("{id:guid}/sales-flow")]
     [RequirePermission("campaigns.read")]
     public async Task<IActionResult> GetSalesFlow(Guid id, [FromServices] ITenantContext tenant,

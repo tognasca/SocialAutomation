@@ -31,13 +31,15 @@ public partial class CampaignRepository
     }
 
     private async Task<string?> PrepareProposalAsync(IDbConnection db, IDbTransaction tx, Guid tenantId, Guid campaignId,
-        Guid leadId, string plansJson, string? vehicleAnswer, DateTime now, CancellationToken ct)
+        Guid leadId, string plansJson, string? vehicleAnswer, DateTime now, CancellationToken ct, Guid? webVisitor = null)
     {
         var plans = JsonSerializer.Deserialize<ProposalPlan[]>(plansJson) ?? [];
         if (plans.Length == 0)
             return null;
 
         var args = new { tenantId, campaignId, leadId, now };
+        await db.ExecuteAsync(new CommandDefinition(
+            "SELECT id FROM leads WHERE tenant_id = @TenantId AND id = @LeadId FOR NO KEY UPDATE", args, tx, cancellationToken: ct));
         var existing = await db.QuerySingleOrDefaultAsync<ProposalReference>(new CommandDefinition(
             """
             SELECT id, accepted_at AS AcceptedAt FROM campaign_proposals
@@ -56,20 +58,20 @@ public partial class CampaignRepository
         if (plan is null)
         {
             await RequestProposalReviewAsync(db, tx, tenantId, leadId, now,
-                "A quantidade informada não se enquadrou nas regras da campanha.", ct);
+                "A quantidade informada não se enquadrou nas regras da campanha.", ct, handoffInbox: webVisitor is null);
             return "Vou encaminhar sua proposta para nossa equipe revisar as condições.";
         }
 
         var proposalId = await db.QuerySingleAsync<Guid>(new CommandDefinition(
             """
-            INSERT INTO campaign_proposals (tenant_id, campaign_id, lead_id, company_name, plan_name, price, terms, created_at, expires_at)
-            SELECT id, @CampaignId, @LeadId, name, @Name, @Price, @Terms, @Now, @Now + INTERVAL '7 days'
+            INSERT INTO campaign_proposals (tenant_id, campaign_id, lead_id, company_name, plan_name, price, terms, created_at, expires_at, web_visitor_id)
+            SELECT id, @CampaignId, @LeadId, name, @Name, @Price, @Terms, @Now, @Now + INTERVAL '7 days', @WebVisitor
             FROM tenants WHERE id = @TenantId
             ON CONFLICT (campaign_id, lead_id) DO UPDATE SET
                 id = gen_random_uuid(), company_name = EXCLUDED.company_name, plan_name = EXCLUDED.plan_name,
-                price = EXCLUDED.price, terms = EXCLUDED.terms, created_at = EXCLUDED.created_at, expires_at = EXCLUDED.expires_at
+                price = EXCLUDED.price, terms = EXCLUDED.terms, created_at = EXCLUDED.created_at, expires_at = EXCLUDED.expires_at, web_visitor_id = EXCLUDED.web_visitor_id
             RETURNING id
-            """, new { tenantId, campaignId, leadId, plan.Name, plan.Price, plan.Terms, now }, tx, cancellationToken: ct));
+            """, new { tenantId, campaignId, leadId, plan.Name, plan.Price, plan.Terms, now, webVisitor }, tx, cancellationToken: ct));
         await db.ExecuteAsync(new CommandDefinition(
             """
             UPDATE leads SET pipeline_stage = 'Proposta', status = 'Proposta', updated_at = @Now
@@ -81,19 +83,19 @@ public partial class CampaignRepository
     }
 
     private static async Task RequestProposalReviewAsync(IDbConnection db, IDbTransaction tx, Guid tenantId,
-        Guid leadId, DateTime now, string reason, CancellationToken ct)
+        Guid leadId, DateTime now, string reason, CancellationToken ct, bool handoffInbox = true)
     {
         await db.ExecuteAsync(new CommandDefinition(
                 """
                 UPDATE conversations SET mode = 'HUMANO'
-                WHERE tenant_id = @TenantId AND lead_id = @LeadId;
+                WHERE @HandoffInbox AND tenant_id = @TenantId AND lead_id = @LeadId;
                 INSERT INTO crm_tasks (tenant_id, lead_id, title, description, due_date)
                 SELECT @TenantId, @LeadId, 'Revisar proposta comercial', @Reason, @Now
                 WHERE NOT EXISTS (
                     SELECT 1 FROM crm_tasks WHERE tenant_id = @TenantId AND lead_id = @LeadId
                       AND title = 'Revisar proposta comercial' AND status = 'Pendente'
                 )
-                """, new { tenantId, leadId, now, reason }, tx, cancellationToken: ct));
+                """, new { tenantId, leadId, now, reason, handoffInbox }, tx, cancellationToken: ct));
     }
 
     private string ProposalLink(Guid id) =>

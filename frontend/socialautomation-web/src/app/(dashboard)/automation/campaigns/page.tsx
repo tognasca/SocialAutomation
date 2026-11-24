@@ -34,6 +34,9 @@ type Campaign = {
   reelScript?: string
   socialCaption?: string
   captureMaterial?: string
+  publicCaptureEnabled: boolean
+  publicCaptureTitle?: string
+  publicCaptureIntro?: string
 }
 
 function errorMessage(error: unknown) {
@@ -173,6 +176,103 @@ function ProposalPlansEditor({ campaignId }: { campaignId: string }) {
       </form>}
       {feedback && <p role="status" className="text-sm">{feedback}</p>}
     </div>
+  )
+}
+
+type ChannelMetrics = { channel: string; visits: number; diagnoses: number; demos: number; accepted: number }
+
+function PublicCaptureEditor({ campaign, refresh }: { campaign: Campaign; refresh: () => Promise<void> }) {
+  const isStock = campaign.commentKeyword?.toLowerCase() === 'estoque'
+  const [title, setTitle] = useState(campaign.publicCaptureTitle || (isStock
+    ? 'Quais carros estão prendendo dinheiro no seu estoque?' : campaign.name))
+  const [intro, setIntro] = useState(campaign.publicCaptureIntro || (isStock
+    ? 'Faça o diagnóstico rápido e receba um checklist para decidir quais veículos merecem atenção primeiro.' : ''))
+  const [channel, setChannel] = useState('instagram_bio')
+  const [metrics, setMetrics] = useState<ChannelMetrics[]>()
+  const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const publicPath = `/captura/${campaign.id}`
+  const sharePath = channel ? `${publicPath}?utm_source=${encodeURIComponent(channel)}` : publicPath
+
+  async function publish(enabled: boolean) {
+    setBusy(true)
+    setError('')
+    try {
+      await api.put(`/api/campaigns/${campaign.id}/public-capture`, { enabled, title, intro })
+      await refresh()
+    } catch (failure) {
+      setError(errorMessage(failure))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function loadMetrics() {
+    setError('')
+    try {
+      const response = await api.get(`/api/campaigns/${campaign.id}/public-capture/metrics`)
+      setMetrics(response.data.data)
+    } catch (failure) {
+      setError(errorMessage(failure))
+    }
+  }
+
+  async function copyLink() {
+    setNotice('')
+    setError('')
+    try {
+      await navigator.clipboard.writeText(new URL(sharePath, location.origin).href)
+      setNotice('Link copiado.')
+    } catch {
+      setError('Abra a página e copie o endereço na barra do navegador.')
+    }
+  }
+
+  return (
+    <details className="space-y-3 rounded border p-3">
+      <summary className="cursor-pointer text-sm font-semibold">Página pública de captura</summary>
+      <form className="mt-3 space-y-3 text-sm" onSubmit={event => { event.preventDefault(); void publish(true) }}>
+        <label className="block">Título da página<Input value={title} onChange={event => setTitle(event.target.value)} required maxLength={160} /></label>
+        <label className="block">Descrição da oferta
+          <textarea value={intro} onChange={event => setIntro(event.target.value)} required maxLength={800} rows={3}
+            className="block w-full rounded border p-2" />
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" disabled={busy}>{campaign.publicCaptureEnabled ? 'Salvar página' : 'Publicar página'}</Button>
+          {campaign.publicCaptureEnabled && <Button type="button" variant="outline" size="sm" disabled={busy}
+            onClick={() => publish(false)}>Despublicar</Button>}
+        </div>
+      </form>
+      {campaign.publicCaptureEnabled && <div className="mt-3 space-y-2 text-sm">
+        <label className="block">Origem para o link
+          <select className="block w-full rounded border p-2" value={channel} onChange={event => setChannel(event.target.value)}>
+            <option value="">Direto</option>
+            <option value="instagram_bio">Bio do Instagram</option>
+            <option value="instagram_stories">Stories</option>
+            <option value="anuncios">Anúncios</option>
+            <option value="whatsapp">WhatsApp</option>
+          </select>
+        </label>
+        <div className="flex flex-wrap items-center gap-3">
+          <a className="underline" href={sharePath} target="_blank" rel="noreferrer">Abrir página</a>
+          <Button variant="outline" size="sm" onClick={copyLink}>Copiar link</Button>
+        </div>
+      </div>}
+      <Button variant="ghost" size="sm" onClick={loadMetrics}>Atualizar funil por origem</Button>
+      {metrics && (metrics.length ? <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead><tr>{['Origem', 'Visitas', 'Diagnósticos', 'Demos', 'Aceites'].map(label =>
+            <th className="px-2 py-1" key={label}>{label}</th>)}</tr></thead>
+          <tbody>{metrics.map(row => <tr className="border-t" key={row.channel}>
+            {[row.channel, row.visits, row.diagnoses, row.demos, row.accepted].map((value, index) =>
+              <td className="px-2 py-1" key={index}>{value}</td>)}
+          </tr>)}</tbody>
+        </table>
+      </div> : <p className="text-sm text-muted-foreground">Ainda não há visitas registradas.</p>)}
+      {notice && <p role="status" className="text-sm">{notice}</p>}
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+    </details>
   )
 }
 
@@ -351,6 +451,7 @@ export default function CampaignsPage() {
                     <p className="whitespace-pre-wrap">{value}</p>
                   </div>)}
                 </details>}
+                {campaign.captureMaterial && <PublicCaptureEditor campaign={campaign} refresh={loadCampaigns} />}
                 {campaign.commentKeyword && <Button disabled={busy} variant="outline" size="sm" onClick={() => setEnabled(campaign)}>
                   {campaign.status === 'Ativa' ? 'Pausar' : 'Ativar'}
                 </Button>}

@@ -24,6 +24,13 @@ public interface IAutomationRepository
 
 public interface ICampaignRepository
 {
+    Task<bool> SetPublicCaptureAsync(Guid tenantId, Guid id, bool enabled, string? title, string? intro, CancellationToken ct);
+    Task<IEnumerable<CampaignChannelMetrics>?> GetWebMetricsAsync(Guid tenantId, Guid id, CancellationToken ct);
+    Task<PublicCampaignCapture?> VisitCaptureAsync(Guid id, Guid visitor, string channel, CancellationToken ct);
+    Task<PublicCampaignDiagnosis?> DiagnoseCaptureAsync(Guid id, Guid visitor, string[] answers, PublicCampaignContact? contact, CancellationToken ct);
+    Task<PublicCampaignSlot?> BookCaptureAsync(Guid id, Guid visitor, long slotId, CancellationToken ct);
+    Task<string?> ProposeCaptureAsync(Guid id, Guid visitor, CancellationToken ct);
+
     Task<IEnumerable<Campaign>> GetActiveCommentCampaignsAsync(Guid tenantId, Guid accountId, string mediaId, CancellationToken ct);
     Task<bool> TryClaimCommentAsync(Campaign campaign, string commentId, CancellationToken ct);
     Task FinishCommentAsync(Guid accountId, string commentId, string? sentMessageId, string? recipientId, CancellationToken ct);

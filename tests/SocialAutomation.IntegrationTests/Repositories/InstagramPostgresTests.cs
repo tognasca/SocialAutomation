@@ -168,6 +168,48 @@ public sealed class InstagramPostgresTests
             Assert.Equal("HUMANO", await connection.ExecuteScalarAsync<string>(
                 "SELECT mode FROM conversations WHERE id = @conversationId", new { conversationId }));
 
+            var web = new Campaign
+            {
+                Id = Guid.NewGuid(), TenantId = tenantId, InstagramAccountId = accountId,
+                Name = "Estoque", InstagramMediaId = "54321", CommentKeyword = "estoque",
+                CaptureMaterial = "Checklist", QualificationQuestions = questions,
+                CreatedAt = now, UpdatedAt = now
+            };
+            await campaigns.CreateAsync(web);
+            var visitor = Guid.NewGuid();
+            Assert.Null(await campaigns.VisitCaptureAsync(web.Id, visitor, "stories", default));
+            Assert.False(await campaigns.SetPublicCaptureAsync(Guid.NewGuid(), web.Id, true, "Título", "Descrição", default));
+            Assert.True(await campaigns.SetPublicCaptureAsync(tenantId, web.Id, true, "Título", "Descrição", default));
+            Assert.True(await campaigns.SaveSalesSettingsAsync(tenantId, web.Id, questions, [startsAt.AddHours(1)], default));
+            Assert.True(await campaigns.SaveProposalPlansAsync(tenantId, web.Id, [new(30, "Loja", 199m, "Mensal.")], default));
+            Assert.Equal("Título", (await campaigns.VisitCaptureAsync(web.Id, visitor, "stories", default))!.Name);
+            await campaigns.VisitCaptureAsync(web.Id, visitor, "bio", default);
+            Assert.Null(await campaigns.DiagnoseCaptureAsync(web.Id, Guid.NewGuid(), ["20", "Estoque"], null, default));
+            var diagnosis = (await campaigns.DiagnoseCaptureAsync(web.Id, visitor, ["20", "Estoque"], null, default))!;
+            Assert.Equal("Checklist", diagnosis.Material);
+            Assert.False(diagnosis.HasContact);
+            var webSlot = Assert.Single(diagnosis.Slots);
+            Assert.Null(await campaigns.BookCaptureAsync(web.Id, visitor, webSlot.Id, default));
+            var anotherVisitor = Guid.NewGuid();
+            await campaigns.VisitCaptureAsync(web.Id, anotherVisitor, "bio", default);
+            var contact = new PublicCampaignContact("Lead Web", "web@example.com", null);
+            var captures = await Task.WhenAll(new[] { visitor, anotherVisitor }.Select(session =>
+                campaigns.DiagnoseCaptureAsync(web.Id, session, ["20", "Estoque"], contact, default)));
+            Assert.All(captures, capture => Assert.True(capture!.HasContact));
+            Assert.Equal(1, await connection.ExecuteScalarAsync<int>("SELECT count(*) FROM leads WHERE email = 'web@example.com'"));
+            Assert.NotNull(await campaigns.BookCaptureAsync(web.Id, visitor, webSlot.Id, default));
+            Assert.NotNull(await campaigns.BookCaptureAsync(web.Id, visitor, webSlot.Id, default));
+            Assert.Null(await campaigns.BookCaptureAsync(web.Id, anotherVisitor, webSlot.Id, default));
+            var webProposal = await campaigns.ProposeCaptureAsync(web.Id, visitor, default);
+            Assert.NotNull(webProposal);
+            Assert.True(await campaigns.AcceptProposalAsync(Guid.Parse(webProposal.Split("?codigo=")[1]), default));
+            var channels = (await campaigns.GetWebMetricsAsync(tenantId, web.Id, default))!.ToArray();
+            Assert.Contains(new CampaignChannelMetrics("stories", 1, 1, 1, 1), channels);
+            Assert.Contains(new CampaignChannelMetrics("bio", 1, 1, 0, 0), channels);
+            Assert.Null(await campaigns.GetWebMetricsAsync(Guid.NewGuid(), web.Id, default));
+            Assert.True(await campaigns.SetPublicCaptureAsync(tenantId, web.Id, false, null, null, default));
+            Assert.Null(await campaigns.VisitCaptureAsync(web.Id, visitor, "stories", default));
+
 
 
         }
