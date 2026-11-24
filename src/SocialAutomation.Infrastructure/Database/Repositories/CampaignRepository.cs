@@ -170,4 +170,225 @@ public class CampaignRepository : ICampaignRepository
             ) AND replied_at IS NULL
             """, new { accountId, recipientId, repliedMessageId, leadId, receivedAt }, cancellationToken: ct)) == 1;
     }
+
+    public async Task<CampaignSalesSettings?> GetSalesSettingsAsync(Guid tenantId, Guid campaignId, CancellationToken ct)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        var args = new { tenantId, campaignId };
+        var questions = await connection.QuerySingleOrDefaultAsync<string[]>(new CommandDefinition(
+            """
+            SELECT COALESCE(qualification_questions, ARRAY[]::text[]) FROM campaigns
+            WHERE tenant_id = @TenantId AND id = @CampaignId AND instagram_media_id IS NOT NULL
+            """, args, cancellationToken: ct));
+        if (questions is null)
+            return null;
+
+        var slots = await connection.QueryAsync<CampaignDemoSlot>(new CommandDefinition(
+            """
+            SELECT id, starts_at AS StartsAt, booked_at AS BookedAt FROM campaign_demo_slots
+            WHERE tenant_id = @TenantId AND campaign_id = @CampaignId AND starts_at > NOW()
+            ORDER BY starts_at
+            """, args, cancellationToken: ct));
+        return new CampaignSalesSettings(questions, slots);
+    }
+
+    public async Task<bool> SaveSalesSettingsAsync(Guid tenantId, Guid campaignId, string[] questions, DateTime[] newSlots, CancellationToken ct)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+        var args = new { tenantId, campaignId, questions, newSlots };
+        var updated = await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE campaigns SET qualification_questions = @Questions, updated_at = NOW()
+            WHERE tenant_id = @TenantId AND id = @CampaignId AND instagram_media_id IS NOT NULL
+            """, args, transaction, cancellationToken: ct));
+        if (updated == 0)
+            return false;
+
+        var inserted = await connection.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO campaign_demo_slots (tenant_id, campaign_id, starts_at)
+            SELECT @TenantId, @CampaignId, s FROM unnest(@NewSlots) AS s
+            ON CONFLICT (tenant_id, starts_at) DO NOTHING
+            """, args, transaction, cancellationToken: ct));
+        if (inserted != newSlots.Length)
+            return false;
+
+        transaction.Commit();
+        return true;
+    }
+
+    public async Task<bool> HasSalesFlowAsync(Guid tenantId, Guid accountId, Guid leadId, CancellationToken ct)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        return await connection.QuerySingleAsync<bool>(new CommandDefinition(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM instagram_comment_replies r JOIN campaigns c ON c.id = r.campaign_id
+                WHERE c.tenant_id = @TenantId AND r.instagram_account_id = @AccountId AND r.lead_id = @LeadId
+                  AND r.replied_at IS NOT NULL AND c.status = 'Ativa' AND cardinality(c.qualification_questions) > 0
+            )
+            """, new { tenantId, accountId, leadId }, cancellationToken: ct));
+    }
+
+    public async Task<string?> AdvanceSalesFlowAsync(Guid tenantId, Guid accountId, Guid leadId, string message, DateTime now, CancellationToken ct)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+        var args = new { tenantId, accountId, leadId, now };
+        var campaign = await connection.QueryFirstOrDefaultAsync<SalesCampaign>(new CommandDefinition(
+            """
+            SELECT c.id, c.name, c.qualification_questions AS Questions
+            FROM instagram_comment_replies r
+            JOIN campaigns c ON c.id = r.campaign_id AND c.instagram_account_id = r.instagram_account_id
+            JOIN leads l ON l.id = r.lead_id AND l.tenant_id = c.tenant_id
+            WHERE c.tenant_id = @TenantId AND r.instagram_account_id = @AccountId AND r.lead_id = @LeadId
+              AND r.replied_at IS NOT NULL AND c.status = 'Ativa'
+            ORDER BY r.replied_at DESC LIMIT 1
+            """, args, transaction, cancellationToken: ct));
+        if (campaign?.Questions is not { Length: > 0 } questions)
+            return null;
+
+        var key = new { CampaignId = campaign.Id, leadId };
+        var started = await connection.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO campaign_qualifications (campaign_id, lead_id, questions)
+            VALUES (@CampaignId, @LeadId, @Questions) ON CONFLICT DO NOTHING
+            """, new { CampaignId = campaign.Id, leadId, questions }, transaction, cancellationToken: ct)) == 1;
+        var flow = await connection.QuerySingleAsync<Qualification>(new CommandDefinition(
+            """
+            SELECT questions, answers, offered_slot_ids AS OfferedSlotIds, booked_slot_id AS BookedSlotId
+            FROM campaign_qualifications WHERE campaign_id = @CampaignId AND lead_id = @LeadId FOR UPDATE
+            """, key, transaction, cancellationToken: ct));
+        if (flow.BookedSlotId.HasValue)
+            return null;
+
+        async Task RecordActivity(string type, string title, string description)
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                """
+                INSERT INTO lead_activities (tenant_id, lead_id, type, title, description, created_at)
+                VALUES (@TenantId, @LeadId, @Type, @Title, @Description, @Now)
+                """, new { tenantId, leadId, type, title, description, now }, transaction, cancellationToken: ct));
+        }
+
+        string reply;
+        if (started)
+        {
+            reply = flow.Questions[0];
+        }
+        else if (flow.Answers.Length < flow.Questions.Length)
+        {
+            var question = flow.Questions[flow.Answers.Length];
+            var answers = flow.Answers.Append(message).ToArray();
+            await connection.ExecuteAsync(new CommandDefinition(
+                """
+                UPDATE campaign_qualifications SET answers = @Answers
+                WHERE campaign_id = @CampaignId AND lead_id = @LeadId
+                """, new { CampaignId = campaign.Id, leadId, answers }, transaction, cancellationToken: ct));
+            await RecordActivity("campaign_qualification", "Qualificação · " + campaign.Name[..Math.Min(campaign.Name.Length, 220)],
+                $"{question}\n{message}");
+            if (answers.Length == flow.Questions.Length)
+            {
+                await connection.ExecuteAsync(new CommandDefinition(
+                    """
+                    UPDATE leads SET pipeline_stage = 'Interessado', status = 'Interessado', updated_at = @Now
+                    WHERE id = @LeadId AND tenant_id = @TenantId
+                      AND pipeline_stage IN ('Novo', 'Contato Iniciado', 'Respondeu')
+                    """, args, transaction, cancellationToken: ct));
+            }
+            reply = answers.Length < flow.Questions.Length
+                ? flow.Questions[answers.Length]
+                : await OfferSlotsAsync(connection, transaction, campaign.Id, tenantId, leadId, now, ct);
+        }
+        else
+        {
+            var parts = message.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var slotId = 0L;
+            var valid = parts.Length == 2 && parts[0].Equals("AGENDAR", StringComparison.OrdinalIgnoreCase) &&
+                long.TryParse(parts[1], out slotId) && flow.OfferedSlotIds.Contains(slotId);
+            var booked = valid ? await connection.QuerySingleOrDefaultAsync<DateTime?>(new CommandDefinition(
+                """
+                UPDATE campaign_demo_slots SET booked_lead_id = @LeadId, booked_at = @Now
+                WHERE id = @SlotId AND campaign_id = @CampaignId AND tenant_id = @TenantId
+                  AND booked_at IS NULL AND starts_at > @Now
+                RETURNING starts_at
+                """, new { slotId, CampaignId = campaign.Id, tenantId, leadId, now }, transaction, cancellationToken: ct)) : null;
+
+            if (booked is DateTime startsAt)
+            {
+                await connection.ExecuteAsync(new CommandDefinition(
+                    """
+                    UPDATE campaign_qualifications SET booked_slot_id = @SlotId
+                    WHERE campaign_id = @CampaignId AND lead_id = @LeadId
+                    """, new { slotId, CampaignId = campaign.Id, leadId }, transaction, cancellationToken: ct));
+                reply = $"Demonstração confirmada para {FormatSlot(startsAt)} (horário de Brasília).";
+                await RecordActivity("campaign_demo", "Demonstração agendada", reply);
+                await connection.ExecuteAsync(new CommandDefinition(
+                    """
+                    INSERT INTO crm_tasks (tenant_id, lead_id, title, description, due_date)
+                    VALUES (@TenantId, @LeadId, 'Realizar demonstração', @Description, @StartsAt)
+                    """, new { tenantId, leadId, Description = reply, startsAt }, transaction, cancellationToken: ct));
+            }
+            else
+            {
+                reply = await OfferSlotsAsync(connection, transaction, campaign.Id, tenantId, leadId, now, ct);
+            }
+        }
+
+        transaction.Commit();
+        return reply;
+    }
+
+    private static async Task<string> OfferSlotsAsync(System.Data.IDbConnection connection, System.Data.IDbTransaction transaction,
+        Guid campaignId, Guid tenantId, Guid leadId, DateTime now, CancellationToken ct)
+    {
+        var slots = (await connection.QueryAsync<CampaignDemoSlot>(new CommandDefinition(
+            """
+            SELECT id, starts_at AS StartsAt, booked_at AS BookedAt FROM campaign_demo_slots
+            WHERE campaign_id = @CampaignId AND tenant_id = @TenantId AND booked_at IS NULL AND starts_at > @Now
+            ORDER BY starts_at LIMIT 3
+            """, new { campaignId, tenantId, now }, transaction, cancellationToken: ct))).ToArray();
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE campaign_qualifications SET offered_slot_ids = @SlotIds
+            WHERE campaign_id = @CampaignId AND lead_id = @LeadId
+            """, new { campaignId, leadId, SlotIds = slots.Select(slot => slot.Id).ToArray() }, transaction, cancellationToken: ct));
+        if (slots.Length == 0)
+        {
+            var title = "Combinar horário da demonstração";
+            await connection.ExecuteAsync(new CommandDefinition(
+                """
+                INSERT INTO crm_tasks (tenant_id, lead_id, title, description, due_date)
+                SELECT @TenantId, @LeadId, @Title, 'Lead qualificado sem horários disponíveis na campanha.', @Now
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM crm_tasks WHERE tenant_id = @TenantId AND lead_id = @LeadId
+                      AND title = @Title AND status = 'Pendente'
+                )
+                """, new { tenantId, leadId, title, now }, transaction, cancellationToken: ct));
+            return "Nossa equipe vai combinar um horário com você.";
+        }
+
+        var options = slots.Select(slot => $"AGENDAR {slot.Id} — {FormatSlot(slot.StartsAt)}");
+        return "Horários disponíveis (Brasília). Responda com AGENDAR e o código escolhido:\n" + string.Join("\n", options);
+    }
+
+    private static string FormatSlot(DateTime startsAt) =>
+        TimeZoneInfo.ConvertTimeFromUtc(startsAt, TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo")).ToString("dd/MM/yyyy HH:mm");
+
+    private sealed class SalesCampaign
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; } = "";
+        public string[]? Questions { get; set; }
+    }
+    private sealed class Qualification
+    {
+        public string[] Questions { get; set; } = [];
+        public string[] Answers { get; set; } = [];
+        public long[] OfferedSlotIds { get; set; } = [];
+        public long? BookedSlotId { get; set; }
+    }
 }

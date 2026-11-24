@@ -128,6 +128,25 @@ public sealed class InstagramPostgresTests
             var measured = await campaigns.GetByIdAsync(campaign.Id, tenantId);
             Assert.Equal(1, measured!.SentCount);
             Assert.Equal(1, measured.ReplyCount);
+            var now = DateTime.UtcNow;
+            var startsAt = now.Date.AddDays(1).AddHours(14);
+            string[] questions = ["Quantos carros?", "Qual a principal dificuldade?"];
+            Assert.True(await campaigns.SaveSalesSettingsAsync(tenantId, campaign.Id, questions, [startsAt], default));
+            Assert.False(await campaigns.SaveSalesSettingsAsync(tenantId, campaign.Id, ["Conflito"], [startsAt], default));
+            var settingsForCampaign = (await campaigns.GetSalesSettingsAsync(tenantId, campaign.Id, default))!;
+            Assert.Equal(questions, settingsForCampaign.Questions);
+            Assert.Null(await campaigns.GetSalesSettingsAsync(Guid.NewGuid(), campaign.Id, default));
+            var slot = Assert.Single(settingsForCampaign.Slots);
+            Assert.Equal(questions[0], await campaigns.AdvanceSalesFlowAsync(tenantId, accountId, leadId, "Olá", now, default));
+            Assert.Equal(questions[1], await campaigns.AdvanceSalesFlowAsync(tenantId, accountId, leadId, "20", now, default));
+            Assert.Contains($"AGENDAR {slot.Id}", await campaigns.AdvanceSalesFlowAsync(tenantId, accountId, leadId, "Cadastro", now, default));
+            Assert.Contains("confirmada", await campaigns.AdvanceSalesFlowAsync(tenantId, accountId, leadId, $"AGENDAR {slot.Id}", now, default));
+            Assert.Null(await campaigns.AdvanceSalesFlowAsync(tenantId, accountId, leadId, $"AGENDAR {slot.Id}", now, default));
+            Assert.Equal(1, await connection.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM crm_tasks WHERE lead_id = @leadId", new { leadId }));
+            Assert.Equal(3, await connection.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM lead_activities WHERE lead_id = @leadId", new { leadId }));
+
 
         }
         finally

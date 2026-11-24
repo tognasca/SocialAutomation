@@ -67,3 +67,11 @@ Na homologação, confira a saída das migrations no log da API e valide o fluxo
 4. Responda à mensagem privada para abrir a conversa no Inbox e criar ou localizar o lead. Os contadores registram envios confirmados, respostas atribuídas e falhas. A conversa usa o agente e o CRM existentes da empresa.
 
 Resultados da busca de perfis podem ser salvos no CRM. O link para o perfil permite abordagem manual. Para ofertas e fechamento use o histórico, as etapas e as tarefas do CRM. A implementação não faz disparos para perfis encontrados na pesquisa.
+
+### Qualificação e agenda da campanha
+
+Em **Automação → Campanhas → Configurar qualificação e agenda**, cadastre até cinco perguntas e os horários de demonstração no horário de Brasília. Cada horário representa um bloco de 30 minutos e só pode ser cadastrado uma vez por empresa. Deixe as perguntas vazias para desligar o fluxo da campanha. A primeira mensagem privada deve convidar a pessoa a responder para começar.
+
+Depois da resposta do lead, uma conversa em **IA ativa** segue as perguntas da campanha em ordem. O CRM grava as respostas em **Atividades** e move os leads nas etapas iniciais para **Interessado**. Ao terminar, o Direct oferece até três horários; a pessoa escolhe com `AGENDAR <código>`. A reserva aparece na campanha, e o CRM cria uma tarefa no horário reservado. Se não houver vaga, o CRM registra uma tarefa para combinar o horário. O fluxo respeita o modo **Humano** e a janela de envio que o Inbox já aplica.
+
+A agenda é interna. O teste com Instagram deve confirmar a chegada da pergunta, o registro das respostas, a escolha do horário e a existência de uma única tarefa de demonstração.

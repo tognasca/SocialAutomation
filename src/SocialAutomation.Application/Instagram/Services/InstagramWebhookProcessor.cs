@@ -178,22 +178,36 @@ public class InstagramWebhookProcessor
             if (receivedAt >= now.AddHours(-24) &&
                 string.Equals(conversation.Mode, "IA_ATIVA", StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogInformation("Processando mensagem com IA para a conversa {ConversationId}", conversation.Id);
+                // Human requests go through the existing handoff path.
+                var asksForHuman = System.Text.RegularExpressions.Regex.IsMatch(text,
+                    @"\b(humano|atendente|parar|cancelar|descadastrar)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (asksForHuman && await _campaigns.HasSalesFlowAsync(account.TenantId, account.Id, lead.Id, ct))
+                {
+                    await _inboxRepository.UpdateConversationModeAsync(conversation.Id, account.TenantId, "HUMANO", ct);
+                    continue;
+                }
 
-                var aiResult = await _aiConversationService.ProcessIncomingMessageAsync(
-                    account.TenantId, conversation.Id, text, ct, saveReply: false);
+                var reply = await _campaigns.AdvanceSalesFlowAsync(account.TenantId, account.Id, lead.Id, text, now, ct);
+                if (reply is null)
+                {
+                    _logger.LogInformation("Processando mensagem com IA para a conversa {ConversationId}", conversation.Id);
+                    var aiResult = await _aiConversationService.ProcessIncomingMessageAsync(
+                        account.TenantId, conversation.Id, text, ct, saveReply: false);
 
-                if (!aiResult.Success)
-                    throw new InvalidOperationException("O agente de IA não conseguiu preparar a resposta.");
+                    if (!aiResult.Success)
+                        throw new InvalidOperationException("O agente de IA não conseguiu preparar a resposta.");
 
-                if (!string.IsNullOrWhiteSpace(aiResult.Data))
+                    reply = aiResult.Data;
+                }
+
+                if (!string.IsNullOrWhiteSpace(reply))
                 {
                     // Envia resposta no Instagram do cliente via Graph API Oficial
                     var sendResult = await _instagramClient.SendTextMessageAsync(
                         account.PageId,
                         account.AccessToken,
                         senderId,
-                        aiResult.Data,
+                        reply,
                         ct);
 
                     var sent = !string.IsNullOrEmpty(sendResult?.MessageId);
@@ -204,7 +218,7 @@ public class InstagramWebhookProcessor
                         ConversationId = conversation.Id,
                         SenderType = "AI",
                         InstagramMessageId = sendResult?.MessageId,
-                        Content = aiResult.Data,
+                        Content = reply,
                         Status = sent ? "Sent" : "Failed",
                         CreatedAt = _dateTimeProvider.UtcNow
                     }, ct);

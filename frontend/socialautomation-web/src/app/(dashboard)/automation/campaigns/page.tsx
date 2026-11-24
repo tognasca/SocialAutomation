@@ -33,6 +33,69 @@ function errorMessage(error: unknown) {
   return isAxiosError(error) ? error.response?.data?.error || error.message : 'Não foi possível concluir a operação.'
 }
 
+type SalesSettings = { questions: string[]; slots: { id: number; startsAt: string; bookedAt?: string }[] }
+
+function SalesFlowEditor({ campaignId }: { campaignId: string }) {
+  const [settings, setSettings] = useState<SalesSettings | null>(null)
+  const [questions, setQuestions] = useState('')
+  const [slot, setSlot] = useState('')
+  const [feedback, setFeedback] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(async () => {
+    const { data } = await api.get(`/api/campaigns/${campaignId}/sales-flow`)
+    const loaded: SalesSettings = data.data
+    setSettings(loaded)
+    setQuestions(loaded.questions.join('\n'))
+  }, [campaignId])
+
+  useEffect(() => {
+    void load().catch(error => setFeedback(errorMessage(error)))
+  }, [load])
+
+  async function save(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    setFeedback('')
+    try {
+      await api.put(`/api/campaigns/${campaignId}/sales-flow`, {
+        questions: questions.split('\n').map(line => line.trim()).filter(Boolean),
+        newSlots: slot ? [`${slot}:00-03:00`] : []
+      })
+      await load()
+      setSlot('')
+      setFeedback('Fluxo salvo.')
+    } catch (error) {
+      setFeedback(errorMessage(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-3 space-y-3 border-t pt-3">
+      {settings && <form className="space-y-3" onSubmit={save}>
+        <label className="block text-sm">Perguntas de qualificação, uma por linha
+          <textarea className="block w-full rounded border p-2" rows={4} value={questions}
+            placeholder={'Quantos veículos sua loja tem em estoque?\nQual é a maior dificuldade na gestão hoje?'}
+            onChange={event => setQuestions(event.target.value)} />
+        </label>
+        <p className="text-sm text-muted-foreground">Deixe as perguntas vazias para desativar o fluxo comercial.</p>
+        <label className="block text-sm">Adicionar horário de demonstração (Brasília)
+          <Input type="datetime-local" step={1800} value={slot} onChange={event => setSlot(event.target.value)} />
+        </label>
+        <Button size="sm" disabled={busy}>Salvar fluxo</Button>
+        {settings.slots.length > 0 && <ul className="space-y-1 text-sm">
+          {settings.slots.map(item => (
+            <li key={item.id}>{new Date(item.startsAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} · {item.bookedAt ? 'Reservado' : 'Disponível'}</li>
+          ))}
+        </ul>}
+      </form>}
+      {feedback && <p role="status" className="text-sm">{feedback}</p>}
+    </div>
+  )
+}
+
 export default function CampaignsPage() {
   const [accounts, setAccounts] = useState<InstagramAccount[]>([])
   const [publications, setPublications] = useState<PublishedContent[]>([])
@@ -44,6 +107,7 @@ export default function CampaignsPage() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [editingFlow, setEditingFlow] = useState('')
 
   const loadCampaigns = useCallback(async () => {
     try {
@@ -154,6 +218,10 @@ export default function CampaignsPage() {
                 {campaign.commentKeyword && <Button disabled={busy} variant="outline" size="sm" onClick={() => setEnabled(campaign)}>
                   {campaign.status === 'Ativa' ? 'Pausar' : 'Ativar'}
                 </Button>}
+                {campaign.commentKeyword && <Button variant="ghost" size="sm" onClick={() => setEditingFlow(editingFlow === campaign.id ? '' : campaign.id)}>
+                  {editingFlow === campaign.id ? 'Fechar fluxo' : 'Configurar qualificação e agenda'}
+                </Button>}
+                {editingFlow === campaign.id && <SalesFlowEditor key={campaign.id} campaignId={campaign.id} />}
               </div>
             ))}
             <Button variant="ghost" onClick={loadCampaigns}>Atualizar resultados</Button>

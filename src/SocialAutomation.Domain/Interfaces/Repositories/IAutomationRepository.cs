@@ -28,6 +28,10 @@ public interface ICampaignRepository
     Task<bool> TryClaimCommentAsync(Campaign campaign, string commentId, CancellationToken ct);
     Task FinishCommentAsync(Guid accountId, string commentId, string? sentMessageId, string? recipientId, CancellationToken ct);
     Task<bool> RecordCommentCampaignResponseAsync(Guid accountId, string recipientId, string? repliedMessageId, Guid leadId, DateTime receivedAt, CancellationToken ct);
+    Task<CampaignSalesSettings?> GetSalesSettingsAsync(Guid tenantId, Guid campaignId, CancellationToken ct);
+    Task<bool> SaveSalesSettingsAsync(Guid tenantId, Guid campaignId, string[] questions, DateTime[] newSlots, CancellationToken ct);
+    Task<bool> HasSalesFlowAsync(Guid tenantId, Guid accountId, Guid leadId, CancellationToken ct);
+    Task<string?> AdvanceSalesFlowAsync(Guid tenantId, Guid accountId, Guid leadId, string message, DateTime now, CancellationToken ct);
     Task<IEnumerable<Campaign>> GetAllByTenantAsync(Guid tenantId, CancellationToken ct = default);
     Task<Campaign?> GetByIdAsync(Guid id, Guid tenantId, CancellationToken ct = default);
     Task<Guid> CreateAsync(Campaign campaign, CancellationToken ct = default);
