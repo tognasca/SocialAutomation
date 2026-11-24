@@ -24,6 +24,10 @@ public partial class CampaignRepository : ICampaignRepository
                      message_template AS MessageTemplate, segment_filter AS SegmentFilter, status,
                      scheduled_at AS ScheduledAt, total_audience AS TotalAudience, sent_count AS SentCount,
                      failed_count AS FailedCount,
+                     reel_script AS ReelScript, social_caption AS SocialCaption, capture_material AS CaptureMaterial,
+                     (SELECT count(*)::int FROM campaign_qualifications q WHERE q.campaign_id = campaigns.id AND cardinality(q.answers) = cardinality(q.questions)) AS QualifiedCount,
+                     (SELECT count(*)::int FROM campaign_qualifications q WHERE q.campaign_id = campaigns.id AND q.booked_slot_id IS NOT NULL) AS BookedCount,
+                     (SELECT count(*)::int FROM campaign_proposals p WHERE p.campaign_id = campaigns.id AND p.accepted_at IS NOT NULL) AS AcceptedCount,
                      (SELECT count(*)::int FROM instagram_comment_replies WHERE campaign_id = campaigns.id AND replied_at IS NOT NULL) AS ReplyCount,
                      created_at AS CreatedAt, updated_at AS UpdatedAt
               FROM campaigns WHERE tenant_id = @TenantId ORDER BY created_at DESC",
@@ -49,8 +53,8 @@ public partial class CampaignRepository : ICampaignRepository
     {
         using var connection = _connectionFactory.CreateConnection();
         await connection.ExecuteAsync(
-            @"INSERT INTO campaigns (id, tenant_id, instagram_account_id, name, message_template, segment_filter, status, scheduled_at, total_audience, created_at, updated_at, instagram_media_id, comment_keyword)
-              VALUES (@Id, @TenantId, @InstagramAccountId, @Name, @MessageTemplate, @SegmentFilter::jsonb, @Status, @ScheduledAt, @TotalAudience, @CreatedAt, @UpdatedAt, @InstagramMediaId, @CommentKeyword)",
+            @"INSERT INTO campaigns (id, tenant_id, instagram_account_id, name, message_template, segment_filter, status, scheduled_at, total_audience, created_at, updated_at, instagram_media_id, comment_keyword, reel_script, social_caption, capture_material, qualification_questions)
+              VALUES (@Id, @TenantId, @InstagramAccountId, @Name, @MessageTemplate, @SegmentFilter::jsonb, @Status, @ScheduledAt, @TotalAudience, @CreatedAt, @UpdatedAt, @InstagramMediaId, @CommentKeyword, @ReelScript, @SocialCaption, @CaptureMaterial, @QualificationQuestions)",
             new
             {
                 campaign.Id,
@@ -65,7 +69,11 @@ public partial class CampaignRepository : ICampaignRepository
                 campaign.CreatedAt,
                 campaign.UpdatedAt,
                 campaign.InstagramMediaId,
-                campaign.CommentKeyword
+                campaign.CommentKeyword,
+                campaign.ReelScript,
+                campaign.SocialCaption,
+                campaign.CaptureMaterial,
+                campaign.QualificationQuestions
             });
 
         return campaign.Id;
@@ -203,6 +211,7 @@ public partial class CampaignRepository : ICampaignRepository
             """
             UPDATE campaigns SET qualification_questions = @Questions, updated_at = NOW()
             WHERE tenant_id = @TenantId AND id = @CampaignId AND instagram_media_id IS NOT NULL
+              AND (capture_material IS NULL OR cardinality(@Questions) > 0)
             """, args, transaction, cancellationToken: ct));
         if (updated == 0)
             return false;
@@ -241,7 +250,7 @@ public partial class CampaignRepository : ICampaignRepository
         var args = new { tenantId, accountId, leadId, now };
         var campaign = await connection.QueryFirstOrDefaultAsync<SalesCampaign>(new CommandDefinition(
             """
-            SELECT c.id, c.name, c.qualification_questions AS Questions, c.proposal_plans::text AS ProposalPlans
+            SELECT c.id, c.name, c.qualification_questions AS Questions, c.proposal_plans::text AS ProposalPlans, c.capture_material AS CaptureMaterial
             FROM instagram_comment_replies r
             JOIN campaigns c ON c.id = r.campaign_id AND c.instagram_account_id = r.instagram_account_id
             JOIN leads l ON l.id = r.lead_id AND l.tenant_id = c.tenant_id
@@ -317,15 +326,23 @@ public partial class CampaignRepository : ICampaignRepository
                       AND pipeline_stage IN ('Novo', 'Contato Iniciado', 'Respondeu')
                     """, args, transaction, cancellationToken: ct));
             }
-            reply = answers.Length < flow.Questions.Length
-                ? flow.Questions[answers.Length]
-                : await OfferSlotsAsync(connection, transaction, campaign.Id, tenantId, leadId, now, ct);
+            if (answers.Length < flow.Questions.Length)
+                reply = flow.Questions[answers.Length];
+            else if (campaign.CaptureMaterial is { } material)
+                reply = material + "\n\nQuer ver na prática como funciona? Responda DEMO para consultar horários.";
+            else
+                reply = await OfferSlotsAsync(connection, transaction, campaign.Id, tenantId, leadId, now, ct);
         }
         else
         {
             var parts = message.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var requestedDemo = parts.Length == 1 && parts[0].Equals("DEMO", StringComparison.OrdinalIgnoreCase);
+            var requestedBooking = parts.Length == 2 && parts[0].Equals("AGENDAR", StringComparison.OrdinalIgnoreCase);
+            if (campaign.CaptureMaterial is not null && !requestedDemo &&
+                !(requestedBooking && flow.OfferedSlotIds.Length > 0))
+                return null;
             var slotId = 0L;
-            var valid = parts.Length == 2 && parts[0].Equals("AGENDAR", StringComparison.OrdinalIgnoreCase) &&
+            var valid = requestedBooking &&
                 long.TryParse(parts[1], out slotId) && flow.OfferedSlotIds.Contains(slotId);
             var booked = valid ? await connection.QuerySingleOrDefaultAsync<DateTime?>(new CommandDefinition(
                 """
@@ -403,6 +420,7 @@ public partial class CampaignRepository : ICampaignRepository
         public Guid Id { get; set; }
         public string Name { get; set; } = "";
         public string[]? Questions { get; set; }
+        public string? CaptureMaterial { get; set; }
         public string ProposalPlans { get; set; } = "[]";
     }
     private sealed class Qualification

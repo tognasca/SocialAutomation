@@ -7,6 +7,13 @@ namespace SocialAutomation.Domain.Entities
         public Guid? InstagramAccountId { get; set; }
         public string? InstagramMediaId { get; set; }
         public string? CommentKeyword { get; set; }
+        public string? ReelScript { get; set; }
+        public string? SocialCaption { get; set; }
+        public string? CaptureMaterial { get; set; }
+        public string[]? QualificationQuestions { get; set; }
+        public int QualifiedCount { get; set; }
+        public int BookedCount { get; set; }
+        public int AcceptedCount { get; set; }
         public string Name { get; set; } = string.Empty;
         public string MessageTemplate { get; set; } = string.Empty;
         public string SegmentFilter { get; set; } = "{}";

@@ -73,7 +73,7 @@ public class CampaignsController : ControllerBase
 
         var saved = await campaigns.SaveSalesSettingsAsync(tenant.TenantId, id, questions, slots, ct);
         return saved ? Ok(new { success = true }) :
-            Conflict(new { success = false, error = "Campanha indisponível ou horário já cadastrado para a empresa." });
+            Conflict(new { success = false, error = "Campanha indisponível, horário já cadastrado ou oferta de captura sem perguntas." });
     }
 
     public sealed record SalesFlowRequest(string[] Questions, DateTimeOffset[] NewSlots);

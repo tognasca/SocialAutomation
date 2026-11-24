@@ -81,3 +81,11 @@ A agenda é interna. O teste com Instagram deve confirmar a chegada da pergunta,
 Abra **Automação → Campanhas → Configurar qualificação e agenda**. Use a quantidade de veículos como primeira pergunta de qualificação. Cadastre em **Proposta comercial** as faixas de veículos, o preço oficial e as condições, incluindo a periodicidade. O sistema escolhe a menor faixa que comporta a quantidade informada. Se a resposta estiver fora das regras, cria uma tarefa de revisão e transfere o atendimento.
 
 Após a reserva da demonstração, o lead pode responder `PROPOSTA` no Direct. O link abre os dados comerciais salvos no momento da emissão e permite registrar um aceite em até sete dias. O aceite é registrado nas atividades e gera uma tarefa no CRM. Configure `PUBLIC_API_URL` no Compose se a API utilizar outro domínio público. O aceite operacional não executa cobrança.
+
+### Campanha de captura ESTOQUE
+
+Em **Automação → Campanhas**, selecione **Usar modelo de diagnóstico de estoque**. Adapte o roteiro e a legenda, publique o Reel e associe o ID da publicação e a conta do Instagram. Salve a campanha pausada, configure os horários em **Configurar qualificação e agenda** e ative a campanha.
+
+Para homologar com outra conta do Instagram, comente `ESTOQUE`, responda `QUERO` ao Direct e responda às duas perguntas. Confira o checklist na conversa e as respostas no CRM. Envie `DEMO` para consultar horários, escolha `AGENDAR <código>` e valide a reserva. Se houver planos cadastrados, envie `PROPOSTA` após a reserva e confirme que a aceitação aparece no funil. A conversa precisa estar em **IA ativa** para avançar automaticamente.
+
+A API aplica a migration `022_campaign_capture.sql` na inicialização. Atualize API, worker e frontend para disponibilizar a campanha.

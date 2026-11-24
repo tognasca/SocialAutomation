@@ -43,6 +43,12 @@ public class CampaignService
             TotalAudience = c.TotalAudience,
             SentCount = c.SentCount,
             ReplyCount = c.ReplyCount,
+            ReelScript = c.ReelScript,
+            SocialCaption = c.SocialCaption,
+            CaptureMaterial = c.CaptureMaterial,
+            QualifiedCount = c.QualifiedCount,
+            BookedCount = c.BookedCount,
+            AcceptedCount = c.AcceptedCount,
             FailedCount = c.FailedCount,
             CreatedAt = c.CreatedAt
         }));
@@ -120,6 +126,17 @@ public class CampaignService
         if (request.Name.Trim().Length > 255 || request.MessageTemplate.Trim().Length > 1000)
             return Result.Fail<Guid>("Use até 255 caracteres no nome e 1.000 na mensagem.");
 
+        var script = request.ReelScript?.Trim();
+        var caption = request.SocialCaption?.Trim();
+        var material = request.CaptureMaterial?.Trim();
+        var questions = request.CaptureQuestions?.Select(question => question?.Trim() ?? "").ToArray();
+        if (script?.Length > 4000 || caption?.Length > 2200 || material?.Length > 800 ||
+            (questions is not null && (questions.Length > 5 || questions.Any(question => question.Length is < 1 or > 300))))
+            return Result.Fail<Guid>("Use até 4.000 caracteres no roteiro, 2.200 na legenda, 800 no material e 5 perguntas de até 300 caracteres.");
+
+        if (!string.IsNullOrEmpty(material) && questions is not { Length: > 0 })
+            return Result.Fail<Guid>("Informe pelo menos uma pergunta para liberar o material no Direct.");
+
         var tenantId = _tenantContext.TenantId;
         var account = request.InstagramAccountId is Guid accountId ? await _accounts.GetByIdAsync(accountId, tenantId, ct) : null;
         if (account?.Status != SocialAutomation.Domain.Enums.InstagramAccountStatus.Active)
@@ -130,6 +147,9 @@ public class CampaignService
         {
             Id = Guid.NewGuid(), TenantId = tenantId, InstagramAccountId = account.Id,
             Name = request.Name.Trim(), MessageTemplate = request.MessageTemplate.Trim(),
+            ReelScript = script, SocialCaption = caption,
+            CaptureMaterial = string.IsNullOrEmpty(material) ? null : material,
+            QualificationQuestions = questions,
             InstagramMediaId = mediaId, CommentKeyword = keyword, Status = "Pausada",
             CreatedAt = now, UpdatedAt = now
         };
