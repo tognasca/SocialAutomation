@@ -102,6 +102,7 @@ public class AiConversationService
         var completion = await provider.CompleteAsync(new AiCompletionRequest
         {
             Provider = agent.ModelProvider,
+            ExpectJson = true,
             Model = agent.ModelName,
             Temperature = agent.Temperature,
             MaxTokens = agent.MaxTokens,

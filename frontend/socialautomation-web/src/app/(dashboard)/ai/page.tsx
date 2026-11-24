@@ -5,10 +5,28 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import api from '@/lib/api'
+import { isAxiosError } from 'axios'
 import { Bot, BookOpen, Save } from 'lucide-react'
 
+type Provider = 'openai' | 'ollama'
+
+type Agent = {
+  id: string
+  name: string
+  isDefault: boolean
+  modelProvider: string
+  modelName: string
+  objective?: string
+  companyName?: string
+  productsServices?: string
+  instructions?: string
+  handoffRules?: string
+}
+
+const defaultModels: Record<Provider, string> = { openai: 'gpt-4o-mini', ollama: 'qwen2.5:3b' }
+
 export default function AiPage() {
-  const [agents, setAgents] = useState<any[]>([])
+  const [agents, setAgents] = useState<Agent[]>([])
   const [docs, setDocs] = useState<any[]>([])
 
   const [name, setName] = useState('Assistente Comercial')
@@ -18,11 +36,31 @@ export default function AiPage() {
   const [instructions, setInstructions] = useState('Seja objetivo, educado e persuasivo.')
   const [handoffRules, setHandoffRules] = useState('atendente,humano,reclamação,orçamento')
 
+  const [provider, setProvider] = useState<Provider>('openai')
+  const [model, setModel] = useState(defaultModels.openai)
+  const [editingAgent, setEditingAgent] = useState<Agent | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saveMessage, setSaveMessage] = useState('')
+
   const [docTitle, setDocTitle] = useState('')
   const [docContent, setDocContent] = useState('')
 
+  const editAgent = (agent: Agent) => {
+    setEditingAgent(agent)
+    setName(agent.name)
+    setObjective(agent.objective ?? '')
+    setCompanyName(agent.companyName ?? '')
+    setProducts(agent.productsServices ?? '')
+    setInstructions(agent.instructions ?? '')
+    setHandoffRules(agent.handoffRules ?? '')
+    const selected = agent.modelProvider === 'ollama' ? 'ollama' : 'openai'
+    setProvider(selected)
+    setModel(agent.modelName || defaultModels[selected])
+    setSaveMessage('')
+  }
+
   useEffect(() => {
-    loadAll()
+    void loadAll().catch(() => setSaveMessage('Não foi possível carregar os agentes.'))
   }, [])
 
   const loadAll = async () => {
@@ -34,25 +72,34 @@ export default function AiPage() {
     setDocs(d.data.data || [])
   }
 
-  const createAgent = async (e: React.FormEvent) => {
+  const saveAgent = async (e: React.FormEvent) => {
     e.preventDefault()
-    await api.post('/api/ai/agents', {
-      name,
-      isActive: true,
-      isDefault: true,
-      personality: 'profissional',
-      tone: 'consultivo',
-      objective,
-      companyName,
-      productsServices: products,
-      instructions,
-      handoffRules,
-      modelProvider: 'openai',
-      modelName: 'gpt-4o-mini',
-      temperature: 0.4,
-      maxTokens: 800
-    })
-    loadAll()
+    if (saving || !model.trim()) return
+    setSaving(true)
+    setSaveMessage('')
+    try {
+      const request = {
+        ...(editingAgent ?? { isActive: true, isDefault: true, personality: 'profissional', tone: 'consultivo', temperature: 0.4, maxTokens: 800 }),
+        name,
+        objective,
+        companyName,
+        productsServices: products,
+        instructions,
+        handoffRules,
+        modelProvider: provider,
+        modelName: model.trim()
+      }
+
+      if (editingAgent) await api.put(`/api/ai/agents/${editingAgent.id}`, request)
+      else await api.post('/api/ai/agents', request)
+
+      await loadAll()
+      setSaveMessage('Agente salvo.')
+    } catch (error) {
+      setSaveMessage(isAxiosError(error) ? error.response?.data?.error ?? 'Não foi possível salvar o agente.' : 'Não foi possível salvar o agente.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const createDoc = async (e: React.FormEvent) => {
@@ -82,14 +129,32 @@ export default function AiPage() {
             <CardTitle>Agente padrão</CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={createAgent} className="space-y-3">
+            <form onSubmit={saveAgent} className="space-y-3">
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome do agente" required />
               <Input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Nome da empresa" />
               <Input value={objective} onChange={(e) => setObjective(e.target.value)} placeholder="Objetivo" />
               <textarea className="w-full border rounded-md p-2 text-sm" rows={3} value={products} onChange={(e) => setProducts(e.target.value)} placeholder="Produtos e serviços" />
               <textarea className="w-full border rounded-md p-2 text-sm" rows={3} value={instructions} onChange={(e) => setInstructions(e.target.value)} placeholder="Instruções" />
               <Input value={handoffRules} onChange={(e) => setHandoffRules(e.target.value)} placeholder="Regras de handoff (separadas por vírgula)" />
-              <Button type="submit"><Save className="h-4 w-4 mr-2" /> Salvar agente</Button>
+              <label className="block text-sm">Provedor do agente
+                <select className="mt-1 block w-full rounded border bg-background p-2" value={provider} onChange={(e) => {
+                  const selected = e.target.value === 'ollama' ? 'ollama' : 'openai'
+                  setProvider(selected)
+                  setModel(defaultModels[selected])
+                }}>
+                  <option value="openai">OpenAI</option>
+                  <option value="ollama">Ollama</option>
+                </select>
+              </label>
+              <label className="block text-sm">Modelo
+                <Input className="mt-1" value={model} onChange={(e) => setModel(e.target.value)} required maxLength={100} />
+              </label>
+              <Button type="submit" disabled={saving || !model.trim()}><Save className="h-4 w-4 mr-2" />{saving ? 'Salvando…' : 'Salvar agente'}</Button>
+              {editingAgent && <Button type="button" variant="outline" className="ml-2" disabled={saving} onClick={() => {
+                setEditingAgent(null)
+                setSaveMessage('')
+              }}>Criar outro agente</Button>}
+              {saveMessage && <p role="status" className="text-sm">{saveMessage}</p>}
             </form>
 
             <div className="mt-4 space-y-2">
@@ -97,6 +162,7 @@ export default function AiPage() {
                 <div key={a.id} className="border rounded p-2 text-sm">
                   <div className="font-semibold">{a.name} {a.isDefault ? '• padrão' : ''}</div>
                   <div className="text-muted-foreground">{a.modelProvider}/{a.modelName}</div>
+                  <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => editAgent(a)} disabled={saving}>Editar agente</Button>
                 </div>
               ))}
             </div>
