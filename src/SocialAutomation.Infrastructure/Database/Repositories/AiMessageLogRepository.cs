@@ -1,4 +1,5 @@
-﻿using Dapper;
+﻿using System.Text.Json;
+using Dapper;
 using SocialAutomation.Domain.Entities;
 using SocialAutomation.Domain.Interfaces.Repositories;
 
@@ -40,12 +41,28 @@ public class AiMessageLogRepository : IAiMessageLogRepository
                 log.Intent,
                 log.ShouldHandoff,
                 log.HandoffReason,
-                RequestPayload = log.RequestPayload ?? "{}",
-                ResponsePayload = log.ResponsePayload ?? "{}",
+                RequestPayload = NormalizePayload(log.RequestPayload),
+                ResponsePayload = NormalizePayload(log.ResponsePayload),
                 log.Success,
                 log.ErrorMessage,
                 log.DurationMs,
                 log.CreatedAt
             });
+    }
+
+    private static string NormalizePayload(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+            return "{}";
+
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            return payload;
+        }
+        catch (JsonException)
+        {
+            return JsonSerializer.Serialize(payload);
+        }
     }
 }

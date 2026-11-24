@@ -35,6 +35,18 @@ public sealed class InstagramPostgresTests
             using var connection = factory.CreateConnection();
             var tenantId = await connection.ExecuteScalarAsync<Guid>(
                 "INSERT INTO tenants (name, slug) VALUES ('Test', 'test') RETURNING id");
+            var logs = new AiMessageLogRepository(factory);
+            await logs.CreateAsync(new AiMessageLog
+            {
+                Id = Guid.NewGuid(), TenantId = tenantId, Provider = "ollama", ModelName = "qwen2.5:1.5b",
+                RequestPayload = """{"incomingMessage":"Olá"}""", ResponsePayload = string.Empty,
+                Success = true, CreatedAt = DateTime.UtcNow
+            });
+            Assert.True(await connection.ExecuteScalarAsync<bool>(
+                """
+                SELECT request_payload->>'incomingMessage' = 'Olá' AND response_payload = '{}'::jsonb
+                FROM ai_message_logs WHERE tenant_id = @tenantId
+                """, new { tenantId }));
             var repository = new InstagramAccountRepository(factory, settings);
             var accountId = await repository.CreateOrUpdateAsync(new InstagramAccount
             {
