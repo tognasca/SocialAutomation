@@ -96,6 +96,79 @@ function SalesFlowEditor({ campaignId }: { campaignId: string }) {
   )
 }
 
+type Plan = { maxVehicles: number; name: string; price: number; terms: string }
+
+function ProposalPlansEditor({ campaignId }: { campaignId: string }) {
+  const [plans, setPlans] = useState<Plan[] | null>(null)
+  const [feedback, setFeedback] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void api.get(`/api/campaigns/${campaignId}/proposal-plans`, { signal: controller.signal })
+      .then(response => setPlans(response.data.data))
+      .catch(error => { if (!controller.signal.aborted) setFeedback(errorMessage(error)) })
+    return () => controller.abort()
+  }, [campaignId])
+
+  function update(index: number, changes: Partial<Plan>) {
+    setPlans(current => current?.map((plan, i) => i === index ? { ...plan, ...changes } : plan) ?? null)
+  }
+
+  async function save(event: FormEvent) {
+    event.preventDefault()
+    if (!plans || busy) return
+    setBusy(true)
+    setFeedback('')
+    try {
+      const sorted = [...plans].sort((a, b) => a.maxVehicles - b.maxVehicles)
+      await api.put(`/api/campaigns/${campaignId}/proposal-plans`, sorted)
+      setPlans(sorted)
+      setFeedback('Planos salvos.')
+    } catch (error) {
+      setFeedback(errorMessage(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-4 space-y-3 border-t pt-3">
+      <h3 className="font-semibold">Proposta comercial</h3>
+      <p className="text-sm text-muted-foreground">Para usar as faixas, a primeira pergunta deve ser sobre a quantidade de veículos. Peça que o lead responda com um número.</p>
+      {plans && <form onSubmit={save} className="space-y-3">
+        {plans.map((plan, index) => (
+          <fieldset key={index} disabled={busy} className="space-y-2 rounded border p-3">
+            <legend className="px-1 text-sm">Plano {index + 1}</legend>
+            <label className="block text-sm">Nome
+              <Input required maxLength={100} value={plan.name} onChange={event => update(index, { name: event.target.value })} />
+            </label>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="block text-sm">Até quantos veículos
+                <Input required type="number" min={1} max={999999} value={plan.maxVehicles || ''} onChange={event => update(index, { maxVehicles: +event.target.value })} />
+              </label>
+              <label className="block text-sm">Preço em reais
+                <Input required type="number" min={0.01} max={9999999999.99} step={0.01} value={plan.price || ''} onChange={event => update(index, { price: +event.target.value })} />
+              </label>
+            </div>
+            <label className="block text-sm">Condições e periodicidade
+              <textarea required maxLength={4000} className="block w-full rounded border bg-background p-2"
+                value={plan.terms} onChange={event => update(index, { terms: event.target.value })} />
+            </label>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setPlans(plans.filter((_, i) => i !== index))}>Remover plano</Button>
+          </fieldset>
+        ))}
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" size="sm" variant="outline" disabled={busy || plans.length >= 10} onClick={() =>
+            setPlans([...plans, { maxVehicles: 0, name: '', price: 0, terms: '' }])}>Adicionar plano</Button>
+          <Button size="sm" disabled={busy}>Salvar planos</Button>
+        </div>
+      </form>}
+      {feedback && <p role="status" className="text-sm">{feedback}</p>}
+    </div>
+  )
+}
+
 export default function CampaignsPage() {
   const [accounts, setAccounts] = useState<InstagramAccount[]>([])
   const [publications, setPublications] = useState<PublishedContent[]>([])
@@ -221,7 +294,10 @@ export default function CampaignsPage() {
                 {campaign.commentKeyword && <Button variant="ghost" size="sm" onClick={() => setEditingFlow(editingFlow === campaign.id ? '' : campaign.id)}>
                   {editingFlow === campaign.id ? 'Fechar fluxo' : 'Configurar qualificação e agenda'}
                 </Button>}
-                {editingFlow === campaign.id && <SalesFlowEditor key={campaign.id} campaignId={campaign.id} />}
+                {editingFlow === campaign.id && <div key={campaign.id}>
+                  <SalesFlowEditor campaignId={campaign.id} />
+                  <ProposalPlansEditor campaignId={campaign.id} />
+                </div>}
               </div>
             ))}
             <Button variant="ghost" onClick={loadCampaigns}>Atualizar resultados</Button>

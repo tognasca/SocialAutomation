@@ -56,6 +56,7 @@ services:
     container_name: sa-worker-prod
     restart: always
     environment:
+      App__PublicApiUrl: "${PUBLIC_API_URL:-https://api-socialautomation.ademartognasca.com.br}"
       AI__Ollama__BaseUrl: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__PostgreSQL: "Host=postgres;Port=5432;Database=socialautomation_prod;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};SSL Mode=Prefer;"

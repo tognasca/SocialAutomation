@@ -77,4 +77,31 @@ public class CampaignsController : ControllerBase
     }
 
     public sealed record SalesFlowRequest(string[] Questions, DateTimeOffset[] NewSlots);
+
+    [HttpGet("{id:guid}/proposal-plans")]
+    [RequirePermission("campaigns.read")]
+    public async Task<IActionResult> GetPlans(Guid id, [FromServices] ITenantContext tenant,
+        [FromServices] ICampaignRepository campaigns, CancellationToken ct)
+    {
+        var data = await campaigns.GetProposalPlansAsync(tenant.TenantId, id, ct);
+        return data is null ? NotFound() : Ok(new { success = true, data });
+    }
+
+    [HttpPut("{id:guid}/proposal-plans")]
+    [RequirePermission("campaigns.execute")]
+    public async Task<IActionResult> SavePlans(Guid id, [FromBody] SocialAutomation.Domain.Entities.ProposalPlan[] plans,
+        [FromServices] ITenantContext tenant, [FromServices] ICampaignRepository campaigns, CancellationToken ct)
+    {
+        if (plans.Length > 10 || plans.Any(plan => plan is null || plan.MaxVehicles is < 1 or > 999999 ||
+            string.IsNullOrWhiteSpace(plan.Name) || plan.Name.Length > 100 || plan.Price is <= 0 or > 9999999999.99m ||
+            decimal.Round(plan.Price, 2) != plan.Price || string.IsNullOrWhiteSpace(plan.Terms) || plan.Terms.Length > 4000) ||
+            plans.Select(plan => plan.MaxVehicles).Distinct().Count() != plans.Length)
+            return BadRequest(new { success = false, error = "Preencha faixas distintas, preço positivo e as condições de cada plano." });
+
+        var ordered = plans.OrderBy(plan => plan.MaxVehicles).Select(plan =>
+            plan with { Name = plan.Name.Trim(), Terms = plan.Terms.Trim() }).ToArray();
+        var saved = await campaigns.SaveProposalPlansAsync(tenant.TenantId, id, ordered, ct);
+        return saved ? Ok(new { success = true }) :
+            BadRequest(new { success = false, error = "Salve a qualificação da campanha antes de cadastrar os planos." });
+    }
 }

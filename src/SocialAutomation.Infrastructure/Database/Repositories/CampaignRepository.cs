@@ -5,13 +5,14 @@ using SocialAutomation.Domain.Interfaces.Repositories;
 
 namespace SocialAutomation.Infrastructure.Database.Repositories;
 
-public class CampaignRepository : ICampaignRepository
+public partial class CampaignRepository : ICampaignRepository
 {
     private readonly DbConnectionFactory _connectionFactory;
 
-    public CampaignRepository(DbConnectionFactory connectionFactory)
+    public CampaignRepository(DbConnectionFactory connectionFactory, Microsoft.Extensions.Configuration.IConfiguration? configuration = null)
     {
         _connectionFactory = connectionFactory;
+        _proposalBaseUrl = configuration?["App:PublicApiUrl"] ?? "https://api-socialautomation.ademartognasca.com.br";
     }
 
     public async Task<IEnumerable<Campaign>> GetAllByTenantAsync(Guid tenantId, CancellationToken ct = default)
@@ -240,7 +241,7 @@ public class CampaignRepository : ICampaignRepository
         var args = new { tenantId, accountId, leadId, now };
         var campaign = await connection.QueryFirstOrDefaultAsync<SalesCampaign>(new CommandDefinition(
             """
-            SELECT c.id, c.name, c.qualification_questions AS Questions
+            SELECT c.id, c.name, c.qualification_questions AS Questions, c.proposal_plans::text AS ProposalPlans
             FROM instagram_comment_replies r
             JOIN campaigns c ON c.id = r.campaign_id AND c.instagram_account_id = r.instagram_account_id
             JOIN leads l ON l.id = r.lead_id AND l.tenant_id = c.tenant_id
@@ -263,7 +264,24 @@ public class CampaignRepository : ICampaignRepository
             FROM campaign_qualifications WHERE campaign_id = @CampaignId AND lead_id = @LeadId FOR UPDATE
             """, key, transaction, cancellationToken: ct));
         if (flow.BookedSlotId.HasValue)
-            return null;
+        {
+            if (campaign.ProposalPlans != "[]" && System.Text.RegularExpressions.Regex.IsMatch(message,
+                @"\b(desconto|condição especial|condicao especial|negociar)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            {
+                await RequestProposalReviewAsync(connection, transaction, tenantId, leadId, now,
+                    "O lead solicitou negociação ou condições especiais pelo Direct.", ct);
+                transaction.Commit();
+                return "Nossa equipe vai continuar o atendimento e revisar as condições com você.";
+            }
+
+            if (!message.Trim().Equals("PROPOSTA", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            var proposalReply = await PrepareProposalAsync(connection, transaction, tenantId, campaign.Id, leadId,
+                campaign.ProposalPlans, flow.Answers.FirstOrDefault(), now, ct);
+            transaction.Commit();
+            return proposalReply;
+        }
 
         async Task RecordActivity(string type, string title, string description)
         {
@@ -325,6 +343,8 @@ public class CampaignRepository : ICampaignRepository
                     WHERE campaign_id = @CampaignId AND lead_id = @LeadId
                     """, new { slotId, CampaignId = campaign.Id, leadId }, transaction, cancellationToken: ct));
                 reply = $"Demonstração confirmada para {FormatSlot(startsAt)} (horário de Brasília).";
+                if (campaign.ProposalPlans != "[]")
+                    reply += " Para conhecer as condições comerciais, responda PROPOSTA.";
                 await RecordActivity("campaign_demo", "Demonstração agendada", reply);
                 await connection.ExecuteAsync(new CommandDefinition(
                     """
@@ -383,6 +403,7 @@ public class CampaignRepository : ICampaignRepository
         public Guid Id { get; set; }
         public string Name { get; set; } = "";
         public string[]? Questions { get; set; }
+        public string ProposalPlans { get; set; } = "[]";
     }
     private sealed class Qualification
     {

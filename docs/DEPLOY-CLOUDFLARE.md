@@ -75,3 +75,9 @@ Em **Automação → Campanhas → Configurar qualificação e agenda**, cadastr
 Depois da resposta do lead, uma conversa em **IA ativa** segue as perguntas da campanha em ordem. O CRM grava as respostas em **Atividades** e move os leads nas etapas iniciais para **Interessado**. Ao terminar, o Direct oferece até três horários; a pessoa escolhe com `AGENDAR <código>`. A reserva aparece na campanha, e o CRM cria uma tarefa no horário reservado. Se não houver vaga, o CRM registra uma tarefa para combinar o horário. O fluxo respeita o modo **Humano** e a janela de envio que o Inbox já aplica.
 
 A agenda é interna. O teste com Instagram deve confirmar a chegada da pergunta, o registro das respostas, a escolha do horário e a existência de uma única tarefa de demonstração.
+
+### Proposta comercial da campanha
+
+Abra **Automação → Campanhas → Configurar qualificação e agenda**. Use a quantidade de veículos como primeira pergunta de qualificação. Cadastre em **Proposta comercial** as faixas de veículos, o preço oficial e as condições, incluindo a periodicidade. O sistema escolhe a menor faixa que comporta a quantidade informada. Se a resposta estiver fora das regras, cria uma tarefa de revisão e transfere o atendimento.
+
+Após a reserva da demonstração, o lead pode responder `PROPOSTA` no Direct. O link abre os dados comerciais salvos no momento da emissão e permite registrar um aceite em até sete dias. O aceite é registrado nas atividades e gera uma tarefa no CRM. Configure `PUBLIC_API_URL` no Compose se a API utilizar outro domínio público. O aceite operacional não executa cobrança.

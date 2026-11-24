@@ -146,6 +146,28 @@ public sealed class InstagramPostgresTests
                 "SELECT COUNT(*) FROM crm_tasks WHERE lead_id = @leadId", new { leadId }));
             Assert.Equal(3, await connection.ExecuteScalarAsync<int>(
                 "SELECT COUNT(*) FROM lead_activities WHERE lead_id = @leadId", new { leadId }));
+            Assert.True(await campaigns.SaveProposalPlansAsync(tenantId, campaign.Id,
+                [new(30, "Plano Loja", 199.90m, "Mensal, com implantação inclusa.")], default));
+            Assert.Null(await campaigns.GetProposalPlansAsync(Guid.NewGuid(), campaign.Id, default));
+            var proposalReply = await campaigns.AdvanceSalesFlowAsync(tenantId, accountId, leadId, "PROPOSTA", now, default);
+            Assert.NotNull(proposalReply);
+            var proposalId = Guid.Parse(proposalReply.Split("?codigo=")[1]);
+            Assert.Equal(proposalReply, await campaigns.AdvanceSalesFlowAsync(tenantId, accountId, leadId, "PROPOSTA", now, default));
+            Assert.Equal(199.90m, (await campaigns.GetPublicProposalAsync(proposalId, default))!.Price);
+            Assert.True(await campaigns.SaveProposalPlansAsync(tenantId, campaign.Id,
+                [new(30, "Plano Loja", 299.90m, "Mensal.")], default));
+            Assert.Equal(199.90m, (await campaigns.GetPublicProposalAsync(proposalId, default))!.Price);
+
+            var acceptances = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => campaigns.AcceptProposalAsync(proposalId, default)));
+            Assert.All(acceptances, accepted => Assert.True(accepted));
+            Assert.Equal(1, await connection.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM lead_activities WHERE lead_id = @leadId AND type = 'campaign_proposal_accepted'", new { leadId }));
+            Assert.Equal(1, await connection.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM crm_tasks WHERE lead_id = @leadId AND title = 'Dar continuidade à proposta aceita'", new { leadId }));
+            Assert.Contains("equipe", await campaigns.AdvanceSalesFlowAsync(tenantId, accountId, leadId, "Tem desconto?", now, default));
+            Assert.Equal("HUMANO", await connection.ExecuteScalarAsync<string>(
+                "SELECT mode FROM conversations WHERE id = @conversationId", new { conversationId }));
+
 
 
         }
