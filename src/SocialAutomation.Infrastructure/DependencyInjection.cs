@@ -47,6 +47,9 @@ public static class DependencyInjection
 
         services.AddHttpClient<OpenAIProvider>();
         services.AddScoped<IAIProvider>(sp => sp.GetRequiredService<OpenAIProvider>());
+        services.AddHttpClient<OllamaProvider>(client => client.Timeout = TimeSpan.FromMinutes(2))
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+        services.AddScoped<IAIProvider>(sp => sp.GetRequiredService<OllamaProvider>());
         services.AddScoped<IAIProviderFactory, AIProviderFactory>();
         // Repositories do CRM
         services.AddScoped<ILeadRepository, LeadRepository>();

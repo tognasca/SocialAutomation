@@ -30,6 +30,7 @@ services:
     container_name: sa-api-prod
     restart: always
     environment:
+      AI__Ollama__BaseUrl: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__PostgreSQL: "Host=postgres;Port=5432;Database=socialautomation_prod;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};SSL Mode=Prefer;"
       Redis__ConnectionString: "redis:6379,password=${REDIS_PASSWORD}"
@@ -40,7 +41,7 @@ services:
       Instagram__TokenEncryptionKey: "${INSTAGRAM_TOKEN_ENCRYPTION_KEY}"
       Instagram__AppSecret: "${INSTAGRAM_APP_SECRET}"
       Instagram__WebhookVerifyToken: "${INSTAGRAM_WEBHOOK_VERIFY_TOKEN}"
-      AI__ApiKey: "${OPENAI_API_KEY}"
+      AI__ApiKey: "${OPENAI_API_KEY:-}"
       App__AllowedOrigins: "https://socialautomation.ademartognasca.com.br;http://localhost:3100;http://localhost:3101"
     ports:
       - "127.0.0.1:5010:8080"
@@ -55,13 +56,14 @@ services:
     container_name: sa-worker-prod
     restart: always
     environment:
+      AI__Ollama__BaseUrl: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__PostgreSQL: "Host=postgres;Port=5432;Database=socialautomation_prod;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};SSL Mode=Prefer;"
       Redis__ConnectionString: "redis:6379,password=${REDIS_PASSWORD}"
       Instagram__AppId: "${INSTAGRAM_APP_ID}"
       Instagram__TokenEncryptionKey: "${INSTAGRAM_TOKEN_ENCRYPTION_KEY}"
       Instagram__AppSecret: "${INSTAGRAM_APP_SECRET}"
-      AI__ApiKey: "${OPENAI_API_KEY}"
+      AI__ApiKey: "${OPENAI_API_KEY:-}"
     depends_on:
       postgres:
         condition: service_healthy
