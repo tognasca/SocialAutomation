@@ -43,9 +43,7 @@ public class ContentPublisherWorker : BackgroundService
                             : null;
                         if (account?.Status != InstagramAccountStatus.Active)
                             throw new InvalidOperationException("Selecione uma conta ativa do Instagram.");
-                        if (item.Type is not ("Post" or "Story" or "Reel") || item.MediaUrls.Length != 1 ||
-                            !Uri.TryCreate(item.MediaUrls[0], UriKind.Absolute, out var media) ||
-                            media.Scheme != Uri.UriSchemeHttps || !string.IsNullOrEmpty(media.UserInfo))
+                        if (!SocialAutomation.Domain.Models.Instagram.PublicationMedia.IsValid(item.Type, item.MediaUrls))
                             throw new InvalidOperationException("Tipo ou URL de mídia inválidos para publicação.");
 
                         var hashtags = string.Join(' ', item.Hashtags.Where(tag => !string.IsNullOrWhiteSpace(tag))
@@ -55,8 +53,11 @@ public class ContentPublisherWorker : BackgroundService
                         if (string.IsNullOrEmpty(account.UserAccessToken) || account.TokenExpiresAt <= DateTime.UtcNow)
                             throw new InvalidOperationException("Reconecte a conta para publicar.");
 
-                        var publicationId = await client.PublishAsync(account.InstagramBusinessId, account.UserAccessToken,
-                            item.Type, media.AbsoluteUri, caption, stoppingToken);
+                        var publicationId = item.Type == "Carousel"
+                            ? await client.PublishCarouselAsync(account.InstagramBusinessId, account.UserAccessToken,
+                                item.MediaUrls, caption, stoppingToken)
+                            : await client.PublishAsync(account.InstagramBusinessId, account.UserAccessToken,
+                                item.Type, item.MediaUrls[0], caption, stoppingToken);
                         await contentRepo.UpdateStatusAsync(item.Id, item.TenantId, "Publicado", publicationId);
                     }
                     catch (Exception ex)

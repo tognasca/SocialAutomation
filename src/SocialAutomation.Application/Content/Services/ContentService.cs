@@ -47,13 +47,11 @@ public class ContentService
 
         if (request.ScheduledAt.HasValue)
         {
-            if (request.Type is not (null or "Post" or "Story" or "Reel"))
-                return Result.Fail<Guid>("Selecione Post, Story ou Reel.");
+            if (request.Type is not (null or "Post" or "Story" or "Reel" or "Carousel"))
+                return Result.Fail<Guid>("Selecione Feed, Carrossel, Story ou Reel.");
 
-            if (request.MediaUrls.Count != 1 ||
-                !Uri.TryCreate(request.MediaUrls[0], UriKind.Absolute, out var media) ||
-                media.Scheme != Uri.UriSchemeHttps || !string.IsNullOrEmpty(media.UserInfo))
-                return Result.Fail<Guid>("Informe uma URL HTTPS pública para a mídia.");
+            if (!SocialAutomation.Domain.Models.Instagram.PublicationMedia.IsValid(request.Type, request.MediaUrls))
+                return Result.Fail<Guid>("Informe uma URL pública HTTPS por mídia. Carrosséis exigem de 2 a 10 imagens.");
 
             if (request.InstagramAccountId is not Guid accountId ||
                 (await _accounts.GetByIdAsync(accountId, _tenantContext.TenantId, ct))?.Status

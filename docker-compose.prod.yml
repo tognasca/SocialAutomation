@@ -30,6 +30,8 @@ services:
     container_name: sa-api-prod
     restart: always
     environment:
+      App__PublicApiUrl: "${PUBLIC_API_URL:-https://api-socialautomation.ademartognasca.com.br}"
+      ContentMedia__Directory: "/data/content-media"
       AI__Ollama__BaseUrl: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__PostgreSQL: "Host=postgres;Port=5432;Database=socialautomation_prod;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};SSL Mode=Prefer;"
@@ -45,6 +47,8 @@ services:
       App__AllowedOrigins: "https://socialautomation.ademartognasca.com.br;http://localhost:3100;http://localhost:3101"
     ports:
       - "127.0.0.1:5010:8080"
+    volumes:
+      - content_media:/data/content-media
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,3 +93,4 @@ services:
 volumes:
   postgres_prod_data:
   redis_prod_data:
+  content_media:

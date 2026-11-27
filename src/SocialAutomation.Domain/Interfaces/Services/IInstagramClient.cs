@@ -16,4 +16,5 @@ public interface IInstagramClient
     Task<MetaUserProfileResponse?> GetInstagramUserProfileAsync(string instagramScopedId, string pageAccessToken, CancellationToken ct = default);
     Task<JsonElement?> SearchAsync(string businessId, string token, string query, bool hashtag, CancellationToken ct);
     Task<string> PublishAsync(string businessId, string token, string type, string mediaUrl, string caption, CancellationToken ct);
+    Task<string> PublishCarouselAsync(string businessId, string token, IReadOnlyList<string> mediaUrls, string caption, CancellationToken ct);
 }

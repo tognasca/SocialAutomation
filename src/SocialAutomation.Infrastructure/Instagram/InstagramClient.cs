@@ -175,18 +175,58 @@ public class InstagramClient : IInstagramClient
         if (type == "Story")
             options["media_type"] = "STORIES";
 
-        var container = await ReadGraphAsync(HttpMethod.Post, $"{graph}/{businessId}/media", token, options, ct);
-        var id = container.GetProperty("id").GetString();
+        var id = await CreateContainerAsync(graph, businessId, token, options, ct);
+        return await PublishContainerAsync(graph, businessId, token, id, ct);
+    }
+
+    public async Task<string> PublishCarouselAsync(string businessId, string token, IReadOnlyList<string> mediaUrls, string caption, CancellationToken ct)
+    {
+        var graph = $"{GraphApiBaseUrl}/{GraphApiVersion}";
+        var children = new List<string>(mediaUrls.Count);
+
+        foreach (var url in mediaUrls)
+        {
+            var child = await CreateContainerAsync(graph, businessId, token, new()
+            {
+                ["image_url"] = url,
+                ["is_carousel_item"] = "true"
+            }, ct);
+            await WaitForContainerAsync(graph, token, child, ct);
+            children.Add(child);
+        }
+
+        var id = await CreateContainerAsync(graph, businessId, token, new()
+        {
+            ["media_type"] = "CAROUSEL",
+            ["children"] = string.Join(",", children),
+            ["caption"] = caption
+        }, ct);
+        return await PublishContainerAsync(graph, businessId, token, id, ct);
+    }
+
+    private async Task<string> CreateContainerAsync(string graph, string businessId, string token,
+        Dictionary<string, string> options, CancellationToken ct)
+    {
+        var result = await ReadGraphAsync(HttpMethod.Post, $"{graph}/{businessId}/media", token, options, ct);
+        return result.GetProperty("id").GetString() ?? throw new InvalidOperationException("A Meta não retornou o ID da mídia.");
+    }
+
+    private async Task<string> PublishContainerAsync(string graph, string businessId, string token, string id, CancellationToken ct)
+    {
+        await WaitForContainerAsync(graph, token, id, ct);
+        var result = await ReadGraphAsync(HttpMethod.Post, $"{graph}/{businessId}/media_publish", token,
+            new() { ["creation_id"] = id }, ct);
+        return result.GetProperty("id").GetString() ?? throw new InvalidOperationException("A Meta não retornou o ID da publicação.");
+    }
+
+    private async Task WaitForContainerAsync(string graph, string token, string id, CancellationToken ct)
+    {
         for (var attempt = 0; attempt < 24; attempt++)
         {
             var status = await ReadGraphAsync(HttpMethod.Get, $"{graph}/{id}?fields=status_code", token, null, ct);
             var code = status.GetProperty("status_code").GetString();
             if (code == "FINISHED")
-            {
-                var publication = await ReadGraphAsync(HttpMethod.Post, $"{graph}/{businessId}/media_publish", token,
-                    new Dictionary<string, string> { ["creation_id"] = id! }, ct);
-                return publication.GetProperty("id").GetString() ?? throw new InvalidOperationException("A Meta não retornou o ID da publicação.");
-            }
+                return;
 
             if (code is "ERROR" or "EXPIRED")
                 throw new InvalidOperationException($"A Meta encerrou o processamento da mídia com estado {code}.");
