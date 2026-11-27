@@ -43,6 +43,8 @@ services:
     ports:
       - "5010:8080"
     environment:
+      App__PublicApiUrl: "${PUBLIC_API_URL:-https://api-socialautomation.ademartognasca.com.br}"
+      ContentMedia__Directory: "/data/content-media"
       AI__Ollama__BaseUrl: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
       AI__ApiKey: "${OPENAI_API_KEY:-}"
       ASPNETCORE_ENVIRONMENT: Development
@@ -58,6 +60,8 @@ services:
       Jwt__Audience: "SocialAutomation"
       Jwt__ExpirationMinutes: "60"
       Jwt__RefreshExpirationDays: "30"
+    volumes:
+      - content_media:/data/content-media
     depends_on:
       postgres:
         condition: service_healthy
@@ -104,3 +108,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  content_media:

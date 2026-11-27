@@ -11,6 +11,7 @@ namespace SocialAutomation.Application.Content.DTOs
         public string Cta { get; set; } = string.Empty;
         public List<string> Hashtags { get; set; } = new();
         public string VisualSuggestion { get; set; } = string.Empty;
+        public List<string> SlideTexts { get; set; } = new();
         public List<ReelSceneDto> ReelScenes { get; set; } = new();
     }
 }

@@ -41,6 +41,7 @@ public class ContentGeneratorService
                             - "hashtags" deve ser sempre um array de strings.
                             - "reelScenes" deve ser sempre um array.
                             - Para conteúdos que não sejam Reel, "reelScenes" deve ser um array vazio.
+                            - Para Carrossel (Carousel), "slideTexts" deve conter de 2 a 6 textos curtos, um por página, com até 120 caracteres cada. A primeira página é a capa e a última tem uma chamada para ação. Em outros formatos, use um array vazio.
                             - O JSON deve estar corretamente formatado e pronto para desserialização.
                             - Não inclua comentários dentro do JSON.
 
@@ -55,6 +56,7 @@ public class ContentGeneratorService
                                 "#tag2",
                                 "#tag3"
                               ],
+                              "slideTexts": [],
                               "visualSuggestion": "Descrição detalhada da imagem, carrossel ou vídeo a ser criado",
                               "reelScenes": [
                                 {
@@ -99,6 +101,10 @@ public class ContentGeneratorService
                     Caption = root.GetProperty("caption").GetString() ?? "",
                     Cta = root.GetProperty("cta").GetString() ?? "",
                     VisualSuggestion = root.GetProperty("visualSuggestion").GetString() ?? "",
+                    SlideTexts = root.TryGetProperty("slideTexts", out var slides) && slides.ValueKind == JsonValueKind.Array
+                        ? slides.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String)
+                            .Select(x => x.GetString()!.Trim()).Where(x => x.Length > 0).Take(10).ToList()
+                        : new List<string>(),
                     Hashtags = root.TryGetProperty("hashtags", out var tags) && tags.ValueKind == JsonValueKind.Array
                         ? tags.EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x.Length > 0).ToList()
                         : new List<string>()

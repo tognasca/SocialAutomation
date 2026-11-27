@@ -48,6 +48,24 @@ public sealed class InstagramGraphTests
     }
 
     [Fact]
+    public async Task CarouselPublishesParentWithChildrenInSlideOrder()
+    {
+        const string ready = """{"status_code":"FINISHED"}""";
+        var graph = new GraphHandler("""{"id":"first"}""", ready, """{"id":"second"}""", ready,
+            """{"id":"carousel"}""", ready, """{"id":"published"}""");
+
+        var id = await CreateClient(graph).PublishCarouselAsync("account", "test-token",
+            ["https://example.test/1.jpg", "https://example.test/2.jpg"], "Legenda", default);
+
+        Assert.Equal("published", id);
+        Assert.Contains("is_carousel_item=true", graph.Requests[0].Body);
+        Assert.Contains("is_carousel_item=true", graph.Requests[2].Body);
+        Assert.Contains("children=first,second", Uri.UnescapeDataString(graph.Requests[4].Body));
+        Assert.Contains("media_type=CAROUSEL", graph.Requests[4].Body);
+        Assert.Equal("creation_id=carousel", graph.Requests[6].Body);
+    }
+
+    [Fact]
     public async Task FailedMediaContainerDoesNotPublish()
     {
         var graph = new GraphHandler("""{"id":"container"}""", """{"status_code":"ERROR"}""");

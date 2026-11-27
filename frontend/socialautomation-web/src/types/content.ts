@@ -27,6 +27,7 @@ export interface GeneratedAiContent {
   caption: string
   cta: string
   hashtags: string[]
+  slideTexts?: string[]
   visualSuggestion: string
   reelScenes: ReelScene[]
 }
